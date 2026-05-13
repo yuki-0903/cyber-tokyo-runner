@@ -21,6 +21,9 @@ export class GameScene extends Phaser.Scene {
   private buildings?: Phaser.GameObjects.TileSprite;
   private foreground?: Phaser.GameObjects.TileSprite;
   private targetX = 0;
+  private touchDirection: -1 | 0 | 1 = 0;
+  private holdTouchEffect?: Phaser.GameObjects.Container;
+  private holdTouchEffectTween?: Phaser.Tweens.Tween;
   private spawnTimer = 0;
   private scoreTimer = 0;
   private readonly state: RuntimeGameState = {
@@ -210,16 +213,46 @@ export class GameScene extends Phaser.Scene {
   private createInput() {
     this.cursors = this.input.keyboard?.createCursorKeys();
 
-    this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+    const updateTouchDirection = (
+      pointer: Phaser.Input.Pointer,
+      options: { shouldNudge?: boolean; shouldPulse?: boolean } = {}
+    ) => {
       if (this.state.phase !== "playing") {
         return;
       }
 
-      if (!pointer.wasTouch) {
+      const direction = pointer.x < this.gameWidth / 2 ? -1 : 1;
+      this.touchDirection = direction;
+
+      if (options.shouldPulse) {
+        this.showHoldTouchEffect(pointer.x, pointer.y);
+      }
+
+      if (options.shouldNudge && this.player) {
+        this.targetX = this.clampPlayerX(this.player.x + direction * 96 * this.screenScale);
+      }
+    };
+
+    this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+      updateTouchDirection(pointer, { shouldNudge: true, shouldPulse: true });
+    });
+
+    this.input.on("pointermove", (pointer: Phaser.Input.Pointer) => {
+      if (!pointer.isDown) {
         return;
       }
 
-      this.targetX = this.clampPlayerX(pointer.x);
+      updateTouchDirection(pointer);
+    });
+
+    this.input.on("pointerup", () => {
+      this.touchDirection = 0;
+      this.hideHoldTouchEffect();
+    });
+
+    this.input.on("pointerupoutside", () => {
+      this.touchDirection = 0;
+      this.hideHoldTouchEffect();
     });
   }
 
@@ -228,20 +261,86 @@ export class GameScene extends Phaser.Scene {
     gameEvents.on("ui:restart", () => this.startGame());
   }
 
+  private showHoldTouchEffect(x: number, y: number) {
+    this.holdTouchEffect?.destroy(true);
+    this.holdTouchEffectTween?.stop();
+
+    const coreRadius = 18 * this.screenScale;
+    const glowRadius = 34 * this.screenScale;
+    const ringRadius = 46 * this.screenScale;
+    const core = this.add
+      .circle(x, y, coreRadius, 0xeaf8ff, 0.42)
+      .setStrokeStyle(2 * this.screenScale, 0x22d7ff, 0.95)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setAlpha(0.9);
+    const glow = this.add
+      .circle(x, y, glowRadius, 0x22d7ff, 0.18)
+      .setStrokeStyle(3 * this.screenScale, 0x8eeeff, 0.5)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setAlpha(0.7);
+    const ring = this.add
+      .circle(x, y, ringRadius, 0xffffff, 0)
+      .setStrokeStyle(2 * this.screenScale, 0x8eeeff, 0.82)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setAlpha(0.74);
+
+    this.holdTouchEffect = this.add
+      .container(0, 0, [glow, ring, core])
+      .setDepth(30)
+      .setAlpha(1);
+
+    this.tweens.add({
+      targets: [glow, ring],
+      scale: { from: 0.72, to: 1.18 },
+      duration: 180,
+      ease: "Sine.easeOut"
+    });
+    this.holdTouchEffectTween = this.tweens.add({
+      targets: [glow, ring],
+      alpha: { from: 0.52, to: 0.86 },
+      scale: { from: 1, to: 1.12 },
+      duration: 580,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.easeInOut"
+    });
+  }
+
+  private hideHoldTouchEffect() {
+    if (!this.holdTouchEffect) {
+      return;
+    }
+
+    this.holdTouchEffectTween?.stop();
+    this.holdTouchEffectTween = undefined;
+
+    this.tweens.add({
+      targets: this.holdTouchEffect,
+      alpha: 0,
+      scale: 1.28,
+      duration: 180,
+      ease: "Sine.easeOut",
+      onComplete: () => {
+        this.holdTouchEffect?.destroy(true);
+        this.holdTouchEffect = undefined;
+      }
+    });
+  }
+
   private updatePlayer(delta: number) {
     if (!this.player) {
       return;
     }
 
     const distance = this.targetX - this.player.x;
-    const keyDirection = this.getKeyboardDirection();
+    const direction = this.getMoveDirection();
     const step = 520 * this.screenScale * (delta / 1000);
 
-    if (keyDirection !== 0) {
-      const nextX = this.player.x + keyDirection * step;
+    if (direction !== 0) {
+      const nextX = this.player.x + direction * step;
       this.player.x = this.clampPlayerX(nextX);
       this.targetX = this.player.x;
-      this.player.setFlipX(keyDirection < 0);
+      this.player.setFlipX(direction < 0);
       return;
     }
 
@@ -268,6 +367,15 @@ export class GameScene extends Phaser.Scene {
     }
 
     return left ? -1 : 1;
+  }
+
+  private getMoveDirection() {
+    const keyboardDirection = this.getKeyboardDirection();
+    if (keyboardDirection !== 0) {
+      return keyboardDirection;
+    }
+
+    return this.touchDirection;
   }
 
   private updateEnemies() {
@@ -336,6 +444,8 @@ export class GameScene extends Phaser.Scene {
     this.scoreTimer = 0;
     this.spawnTimer = this.spawnConfig.initialDelayMs;
     this.targetX = this.gameWidth / 2;
+    this.touchDirection = 0;
+    this.hideHoldTouchEffect();
     this.enemies?.clear(true, true);
 
     if (this.player) {
@@ -362,6 +472,8 @@ export class GameScene extends Phaser.Scene {
     this.scoreTimer = 0;
     this.spawnTimer = 250;
     this.targetX = this.gameWidth / 2;
+    this.touchDirection = 0;
+    this.hideHoldTouchEffect();
     this.enemies?.clear(true, true);
 
     if (this.player) {
@@ -413,6 +525,8 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.state.phase = "gameOver";
+    this.touchDirection = 0;
+    this.hideHoldTouchEffect();
     this.player?.setVelocity(0, 0);
     this.player?.setAlpha(0.55);
     this.enemies?.setVelocityY(0);
