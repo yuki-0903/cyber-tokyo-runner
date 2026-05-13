@@ -82,10 +82,18 @@ export class GameScene extends Phaser.Scene {
   }
 
   private get gameWidth() {
+    if (this.isRotatedTouchView()) {
+      return this.scale.height;
+    }
+
     return this.scale.width;
   }
 
   private get gameHeight() {
+    if (this.isRotatedTouchView()) {
+      return this.scale.width;
+    }
+
     return this.scale.height;
   }
 
@@ -114,7 +122,23 @@ export class GameScene extends Phaser.Scene {
 
   private resizeWorld() {
     this.physics.world.setBounds(0, 0, this.gameWidth, this.gameHeight);
-    this.cameras.main.setBounds(0, 0, this.gameWidth, this.gameHeight);
+    this.configureCamera();
+  }
+
+  private configureCamera() {
+    const camera = this.cameras.main;
+    camera.setViewport(0, 0, this.scale.width, this.scale.height);
+    camera.setBounds(0, 0, this.gameWidth, this.gameHeight);
+    camera.setScroll(0, 0);
+
+    if (this.isRotatedTouchView()) {
+      camera.setRotation(Math.PI / 2);
+      camera.centerOn(this.gameWidth / 2, this.gameHeight / 2);
+      return;
+    }
+
+    camera.setRotation(0);
+    camera.centerOn(this.gameWidth / 2, this.gameHeight / 2);
   }
 
   private handleResize() {
@@ -211,11 +235,12 @@ export class GameScene extends Phaser.Scene {
         return;
       }
 
-      const direction = pointer.x < this.gameWidth / 2 ? -1 : 1;
+      const direction = this.getTouchDirection(pointer);
       this.touchDirection = direction;
 
       if (options.shouldPulse) {
-        this.showHoldTouchEffect(pointer.x, pointer.y);
+        const effectPoint = this.getTouchEffectPoint(pointer);
+        this.showHoldTouchEffect(effectPoint.x, effectPoint.y);
       }
 
       if (options.shouldNudge && this.player) {
@@ -244,6 +269,31 @@ export class GameScene extends Phaser.Scene {
       this.touchDirection = 0;
       this.hideHoldTouchEffect();
     });
+  }
+
+  private getTouchDirection(pointer: Phaser.Input.Pointer): -1 | 1 {
+    const point = this.getPointerWorldPoint(pointer);
+
+    return point.x < this.gameWidth / 2 ? -1 : 1;
+  }
+
+  private getTouchEffectPoint(pointer: Phaser.Input.Pointer) {
+    return this.getPointerWorldPoint(pointer);
+  }
+
+  private getPointerWorldPoint(pointer: Phaser.Input.Pointer) {
+    return this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+  }
+
+  private isRotatedTouchView() {
+    if (typeof window === "undefined") {
+      return false;
+    }
+
+    const isPortraitWindow = window.matchMedia("(orientation: portrait)").matches;
+    const isTouchPrimary = window.matchMedia("(pointer: coarse)").matches;
+
+    return isPortraitWindow && (isTouchPrimary || navigator.maxTouchPoints > 0);
   }
 
   private createEvents() {

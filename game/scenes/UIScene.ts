@@ -43,7 +43,7 @@ export class UIScene extends Phaser.Scene {
 
   create() {
     this.ui = new UIManager(this);
-    this.cameras.main.setScroll(0, 0);
+    this.configureCamera();
     this.createKeyboardShortcuts();
     this.createHud();
     this.createTitle();
@@ -328,10 +328,18 @@ export class UIScene extends Phaser.Scene {
   }
 
   private get gameWidth() {
+    if (this.isRotatedTouchView()) {
+      return this.scale.height;
+    }
+
     return this.scale.width;
   }
 
   private get gameHeight() {
+    if (this.isRotatedTouchView()) {
+      return this.scale.width;
+    }
+
     return this.scale.height;
   }
 
@@ -349,6 +357,7 @@ export class UIScene extends Phaser.Scene {
   }
 
   private handleResize() {
+    this.configureCamera();
     this.createHud();
 
     if (this.isTitleVisible) {
@@ -358,6 +367,33 @@ export class UIScene extends Phaser.Scene {
     if (this.lastGameOverPayload) {
       this.showGameOver(this.lastGameOverPayload);
     }
+  }
+
+  private configureCamera() {
+    const camera = this.cameras.main;
+    camera.setViewport(0, 0, this.scale.width, this.scale.height);
+    camera.setBounds(0, 0, this.gameWidth, this.gameHeight);
+    camera.setScroll(0, 0);
+
+    if (this.isRotatedTouchView()) {
+      camera.setRotation(Math.PI / 2);
+      camera.centerOn(this.gameWidth / 2, this.gameHeight / 2);
+      return;
+    }
+
+    camera.setRotation(0);
+    camera.centerOn(this.gameWidth / 2, this.gameHeight / 2);
+  }
+
+  private isRotatedTouchView() {
+    if (typeof window === "undefined") {
+      return false;
+    }
+
+    const isPortraitWindow = window.matchMedia("(orientation: portrait)").matches;
+    const isTouchPrimary = window.matchMedia("(pointer: coarse)").matches;
+
+    return isPortraitWindow && (isTouchPrimary || navigator.maxTouchPoints > 0);
   }
 
   private registerEvents() {
