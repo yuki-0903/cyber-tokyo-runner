@@ -1,0 +1,11 @@
+{
+  "image": "cyberpunk-tokyo-32x32-tileset.png",
+  "tileWidth": 32,
+  "tileHeight": 32,
+  "columns": 16,
+  "rows": 16,
+  "imageWidth": 512,
+  "imageHeight": 512,
+  "source": "cyberpunk-tokyo-alley-source.png",
+  "notes": "Core wall/floor/pipe tiles are designed to repeat on a 32x32 grid; lower rows include transparent decals for layering."
+}
