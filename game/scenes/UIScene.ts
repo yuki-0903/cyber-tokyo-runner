@@ -18,6 +18,7 @@ export class UIScene extends Phaser.Scene {
   private hpFill?: Phaser.GameObjects.Image;
   private titleLayer?: Phaser.GameObjects.Container;
   private gameOverLayer?: Phaser.GameObjects.Container;
+  private spaceKey?: Phaser.Input.Keyboard.Key;
   private readonly hpFillWidth = 352;
 
   constructor() {
@@ -36,6 +37,7 @@ export class UIScene extends Phaser.Scene {
   create() {
     this.ui = new UIManager(this);
     this.cameras.main.setScroll(0, 0);
+    this.createKeyboardShortcuts();
     this.createHud();
     this.createTitle();
     this.registerEvents();
@@ -74,7 +76,7 @@ export class UIScene extends Phaser.Scene {
     this.titleLayer = this.add.container(0, 0).setDepth(130).setScrollFactor(0);
 
     const title = this.ui.createLabel("CYBER TOKYO RUNNER", GAME_WIDTH / 2, 190, 34, 131);
-    const hint = this.ui.createLabel("USE ARROW KEYS", GAME_WIDTH / 2, 238, 16, 131);
+    const hint = this.ui.createLabel("SPACE TO START / ARROW KEYS", GAME_WIDTH / 2, 238, 16, 131);
     const button = this.ui.createButton({
       key: "uiButtonStart",
       label: "START",
@@ -82,13 +84,30 @@ export class UIScene extends Phaser.Scene {
       y: 322,
       width: 360,
       height: 96,
-      onClick: () => {
-        this.hideTitle();
-        gameEvents.emit("ui:start");
-      }
+      onClick: () => this.startFromTitle()
     });
 
     this.titleLayer.add([title, hint, button]);
+  }
+
+  private createKeyboardShortcuts() {
+    this.spaceKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    this.spaceKey?.on("down", () => {
+      if (!this.titleLayer || this.gameOverLayer) {
+        return;
+      }
+
+      this.startFromTitle();
+    });
+  }
+
+  private startFromTitle() {
+    if (!this.titleLayer) {
+      return;
+    }
+
+    this.hideTitle();
+    gameEvents.emit("ui:start");
   }
 
   private showGameOver(payload: GameOverPayload) {
