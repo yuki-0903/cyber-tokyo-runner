@@ -9,6 +9,12 @@ export async function createGame(parent: HTMLElement): Promise<Phaser.Game> {
     type: PhaserRuntime.AUTO,
     parent,
     backgroundColor: "#05070f",
+    render: {
+      antialias: false,
+      antialiasGL: false,
+      pixelArt: true,
+      roundPixels: true
+    },
     scale: {
       mode: PhaserRuntime.Scale.RESIZE,
       autoCenter: PhaserRuntime.Scale.CENTER_BOTH,

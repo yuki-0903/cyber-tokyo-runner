@@ -2,7 +2,8 @@ import * as Phaser from "phaser";
 import { ASSET_BASE } from "@/game/config/assets";
 import { gameEvents } from "@/game/systems/GameEvents";
 import { gameServices } from "@/game/systems/GameServices";
-import type { RuntimeGameState, SpawnConfig } from "@/game/types/GameState";
+import { ObstacleManager } from "@/game/systems/ObstacleManager";
+import type { RuntimeGameState } from "@/game/types/GameState";
 
 const BACKGROUND_SOURCE_WIDTH = 1774;
 const BACKGROUND_SOURCE_HEIGHT = 887;
@@ -10,11 +11,11 @@ const BASE_GAME_WIDTH = 960;
 const BASE_GAME_HEIGHT = 540;
 const PLAYER_BOTTOM_OFFSET = 72;
 const PLAYER_MARGIN_X = 32;
-const PLAYER_BASE_SCALE = 2;
+const PLAYER_BASE_SCALE = 2.55;
 
 export class GameScene extends Phaser.Scene {
   private player?: Phaser.Physics.Arcade.Sprite;
-  private enemies?: Phaser.Physics.Arcade.Group;
+  private obstacleManager?: ObstacleManager;
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
   private sky?: Phaser.GameObjects.Image;
   private farBackground?: Phaser.GameObjects.TileSprite;
@@ -24,7 +25,7 @@ export class GameScene extends Phaser.Scene {
   private touchDirection: -1 | 0 | 1 = 0;
   private holdTouchEffect?: Phaser.GameObjects.Container;
   private holdTouchEffectTween?: Phaser.Tweens.Tween;
-  private spawnTimer = 0;
+  private hitStopEvent?: Phaser.Time.TimerEvent;
   private scoreTimer = 0;
   private readonly state: RuntimeGameState = {
     phase: "ready",
@@ -32,14 +33,6 @@ export class GameScene extends Phaser.Scene {
     bestScore: 0,
     hp: 100,
     maxHp: 100
-  };
-
-  private readonly spawnConfig: SpawnConfig = {
-    initialDelayMs: 950,
-    minDelayMs: 360,
-    speedStart: 120,
-    speedMax: 310,
-    difficultyRamp: 0.012
   };
 
   constructor() {
@@ -62,10 +55,7 @@ export class GameScene extends Phaser.Scene {
       frameWidth: 32,
       frameHeight: 32
     });
-    this.load.image(
-      "fallingObstacle",
-      `${ASSET_BASE}/sprites/falling-cyberpunk-obstacle-cropped.png`
-    );
+    ObstacleManager.preload(this);
   }
 
   create() {
@@ -74,7 +64,7 @@ export class GameScene extends Phaser.Scene {
     this.scene.launch("UIScene");
     this.createBackground();
     this.createPlayer();
-    this.createEnemies();
+    this.createObstacles();
     this.createInput();
     this.createEvents();
     this.scale.on(Phaser.Scale.Events.RESIZE, this.handleResize, this);
@@ -82,13 +72,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number) {
-    if (this.state.phase !== "playing" || !this.player || !this.enemies) {
+    if (this.state.phase !== "playing" || !this.player || !this.obstacleManager) {
       return;
     }
 
     this.updatePlayer(delta);
-    this.updateEnemies();
-    this.updateSpawning(delta);
+    this.obstacleManager.update(delta, this.state.score);
     this.updateScore(delta);
   }
 
@@ -199,13 +188,14 @@ export class GameScene extends Phaser.Scene {
     this.player.body?.setSize(16, 24, true);
   }
 
-  private createEnemies() {
-    this.enemies = this.physics.add.group({
-      allowGravity: false,
-      immovable: false
+  private createObstacles() {
+    this.obstacleManager = new ObstacleManager(this, {
+      getGameWidth: () => this.gameWidth,
+      getGameHeight: () => this.gameHeight,
+      getScreenScale: () => this.screenScale
     });
 
-    this.physics.add.overlap(this.player!, this.enemies, (_player, enemy) => {
+    this.physics.add.overlap(this.player!, this.obstacleManager.group, (_player, enemy) => {
       this.damagePlayer(enemy as Phaser.Physics.Arcade.Sprite);
     });
   }
@@ -378,30 +368,6 @@ export class GameScene extends Phaser.Scene {
     return this.touchDirection;
   }
 
-  private updateEnemies() {
-    this.enemies?.children.each((child) => {
-      const enemy = child as Phaser.Physics.Arcade.Sprite;
-      if (enemy.y > this.gameHeight + 48 * this.screenScale) {
-        enemy.destroy();
-      }
-      return true;
-    });
-  }
-
-  private updateSpawning(delta: number) {
-    this.spawnTimer -= delta;
-    if (this.spawnTimer > 0) {
-      return;
-    }
-
-    this.spawnEnemy();
-    const ramp = Math.min(520, this.state.score * 5);
-    this.spawnTimer = Math.max(
-      this.spawnConfig.minDelayMs,
-      this.spawnConfig.initialDelayMs - ramp
-    );
-  }
-
   private updateScore(delta: number) {
     this.scoreTimer += delta;
     if (this.scoreTimer < 250) {
@@ -417,40 +383,21 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private spawnEnemy() {
-    if (!this.enemies) {
-      return;
-    }
-
-    const margin = 36 * this.screenScale;
-    const x = Phaser.Math.Between(margin, Math.max(margin, this.gameWidth - margin));
-    const enemy = this.enemies.create(x, -96 * this.screenScale, "fallingObstacle") as Phaser.Physics.Arcade.Sprite;
-    const speed = Math.min(
-      this.spawnConfig.speedMax,
-      this.spawnConfig.speedStart + this.state.score * this.spawnConfig.difficultyRamp * 100
-    ) * this.screenScale;
-
-    enemy.setDepth(7);
-    enemy.setDisplaySize(28 * this.screenScale, 92 * this.screenScale);
-    enemy.setVelocityY(speed);
-    enemy.setAngularVelocity(Phaser.Math.Between(-24, 24));
-    enemy.body?.setSize(16 * this.screenScale, 68 * this.screenScale, true);
-  }
-
   private prepareGame() {
     this.state.phase = "ready";
     this.state.score = 0;
     this.state.hp = this.state.maxHp;
     this.scoreTimer = 0;
-    this.spawnTimer = this.spawnConfig.initialDelayMs;
     this.targetX = this.gameWidth / 2;
     this.touchDirection = 0;
     this.hideHoldTouchEffect();
-    this.enemies?.clear(true, true);
+    this.resetHitStop();
+    this.obstacleManager?.reset();
 
     if (this.player) {
       this.player.enableBody(true, this.gameWidth / 2, this.playerY, true, true);
       this.player.setAlpha(1);
+      this.player.setAngle(0);
       this.player.play("girl-walk", true);
     }
 
@@ -470,15 +417,16 @@ export class GameScene extends Phaser.Scene {
     this.state.score = 0;
     this.state.hp = this.state.maxHp;
     this.scoreTimer = 0;
-    this.spawnTimer = 250;
     this.targetX = this.gameWidth / 2;
     this.touchDirection = 0;
     this.hideHoldTouchEffect();
-    this.enemies?.clear(true, true);
+    this.resetHitStop();
+    this.obstacleManager?.reset(250);
 
     if (this.player) {
       this.player.enableBody(true, this.gameWidth / 2, this.playerY, true, true);
       this.player.setAlpha(1);
+      this.player.setAngle(0);
       this.player.play("girl-walk", true);
     }
 
@@ -499,12 +447,28 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    const hitX = enemy.x;
+    const hitY = enemy.y;
     enemy.destroy();
     this.state.hp = Math.max(0, this.state.hp - 25);
     gameEvents.emit("health:changed", {
       hp: this.state.hp,
       maxHp: this.state.maxHp
     });
+
+    this.playDamageFeedback(hitX, hitY);
+
+    if (this.state.hp <= 0) {
+      void this.gameOver();
+    }
+  }
+
+  private playDamageFeedback(hitX: number, hitY: number) {
+    this.cameras.main.shake(110, 0.006);
+    this.showDamageVignette();
+    this.startHitStop();
+    this.knockBackPlayer(hitX);
+    this.spawnHitParticles(hitX, hitY);
 
     this.tweens.add({
       targets: this.player,
@@ -513,9 +477,121 @@ export class GameScene extends Phaser.Scene {
       repeat: 2,
       ease: "Sine.easeInOut"
     });
+  }
 
-    if (this.state.hp <= 0) {
-      void this.gameOver();
+  private showDamageVignette() {
+    const thickness = 28 * this.screenScale;
+    const alpha = 0.22;
+    const top = this.add.rectangle(
+      this.gameWidth / 2,
+      thickness / 2,
+      this.gameWidth,
+      thickness,
+      0xff2e5c,
+      alpha
+    );
+    const bottom = this.add.rectangle(
+      this.gameWidth / 2,
+      this.gameHeight - thickness / 2,
+      this.gameWidth,
+      thickness,
+      0xff2e5c,
+      alpha
+    );
+    const left = this.add.rectangle(
+      thickness / 2,
+      this.gameHeight / 2,
+      thickness,
+      this.gameHeight,
+      0xff2e5c,
+      alpha
+    );
+    const right = this.add.rectangle(
+      this.gameWidth - thickness / 2,
+      this.gameHeight / 2,
+      thickness,
+      this.gameHeight,
+      0xff2e5c,
+      alpha
+    );
+    const vignette = this.add
+      .container(0, 0, [top, bottom, left, right])
+      .setDepth(80)
+      .setBlendMode(Phaser.BlendModes.ADD);
+
+    this.tweens.add({
+      targets: vignette,
+      alpha: 0,
+      duration: 240,
+      ease: "Sine.easeOut",
+      onComplete: () => vignette.destroy(true)
+    });
+  }
+
+  private startHitStop() {
+    const world = this.physics.world as Phaser.Physics.Arcade.World & { timeScale: number };
+    world.timeScale = 0.58;
+    this.hitStopEvent?.remove(false);
+    this.hitStopEvent = this.time.delayedCall(70, () => {
+      world.timeScale = 1;
+      this.hitStopEvent = undefined;
+    });
+  }
+
+  private resetHitStop() {
+    const world = this.physics.world as Phaser.Physics.Arcade.World & { timeScale: number };
+    world.timeScale = 1;
+    this.hitStopEvent?.remove(false);
+    this.hitStopEvent = undefined;
+  }
+
+  private knockBackPlayer(hitX: number) {
+    if (!this.player) {
+      return;
+    }
+
+    const direction = this.player.x < hitX ? -1 : 1;
+    const knockbackX = this.clampPlayerX(this.player.x + direction * 28 * this.screenScale);
+    this.targetX = knockbackX;
+
+    this.tweens.add({
+      targets: this.player,
+      x: knockbackX,
+      angle: direction * -4,
+      duration: 75,
+      ease: "Sine.easeOut",
+      yoyo: true,
+      onComplete: () => {
+        if (this.player) {
+          this.player.angle = 0;
+        }
+      }
+    });
+  }
+
+  private spawnHitParticles(x: number, y: number) {
+    const particleCount = 8;
+
+    for (let index = 0; index < particleCount; index += 1) {
+      const angle = Phaser.Math.FloatBetween(-Math.PI, 0);
+      const distance = Phaser.Math.Between(18, 62) * this.screenScale;
+      const size = Phaser.Math.Between(2, 5) * this.screenScale;
+      const color = index % 3 === 0 ? 0xff4b8d : index % 3 === 1 ? 0x22d7ff : 0xeaf8ff;
+      const particle = this.add
+        .circle(x, y, size, color, 0.85)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setDepth(32);
+
+      this.tweens.add({
+        targets: particle,
+        x: x + Math.cos(angle) * distance,
+        y: y + Math.sin(angle) * distance,
+        alpha: 0,
+        scale: { from: 1, to: 0.35 },
+        duration: Phaser.Math.Between(180, 320),
+        ease: "Sine.easeOut",
+        onComplete: () => particle.destroy()
+      });
     }
   }
 
@@ -527,9 +603,10 @@ export class GameScene extends Phaser.Scene {
     this.state.phase = "gameOver";
     this.touchDirection = 0;
     this.hideHoldTouchEffect();
+    this.resetHitStop();
     this.player?.setVelocity(0, 0);
     this.player?.setAlpha(0.55);
-    this.enemies?.setVelocityY(0);
+    this.obstacleManager?.pause();
     this.state.bestScore = Math.max(this.state.bestScore, this.state.score);
 
     gameEvents.emit("game:over", {
