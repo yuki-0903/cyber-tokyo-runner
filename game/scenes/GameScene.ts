@@ -4,14 +4,23 @@ import { gameEvents } from "@/game/systems/GameEvents";
 import { gameServices } from "@/game/systems/GameServices";
 import type { RuntimeGameState, SpawnConfig } from "@/game/types/GameState";
 
-const WORLD_WIDTH = 960;
-const WORLD_HEIGHT = 540;
+const BACKGROUND_SOURCE_WIDTH = 1774;
+const BACKGROUND_SOURCE_HEIGHT = 887;
+const BASE_GAME_WIDTH = 960;
+const BASE_GAME_HEIGHT = 540;
+const PLAYER_BOTTOM_OFFSET = 72;
+const PLAYER_MARGIN_X = 32;
+const PLAYER_BASE_SCALE = 2;
 
 export class GameScene extends Phaser.Scene {
   private player?: Phaser.Physics.Arcade.Sprite;
   private enemies?: Phaser.Physics.Arcade.Group;
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
-  private targetX = WORLD_WIDTH / 2;
+  private sky?: Phaser.GameObjects.Image;
+  private farBackground?: Phaser.GameObjects.TileSprite;
+  private buildings?: Phaser.GameObjects.TileSprite;
+  private foreground?: Phaser.GameObjects.TileSprite;
+  private targetX = 0;
   private spawnTimer = 0;
   private scoreTimer = 0;
   private readonly state: RuntimeGameState = {
@@ -58,13 +67,14 @@ export class GameScene extends Phaser.Scene {
 
   create() {
     this.cameras.main.setBackgroundColor("#05070f");
-    this.physics.world.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+    this.resizeWorld();
     this.scene.launch("UIScene");
     this.createBackground();
     this.createPlayer();
     this.createEnemies();
     this.createInput();
     this.createEvents();
+    this.scale.on(Phaser.Scale.Events.RESIZE, this.handleResize, this);
     this.prepareGame();
   }
 
@@ -79,26 +89,87 @@ export class GameScene extends Phaser.Scene {
     this.updateScore(delta);
   }
 
-  private createBackground() {
-    this.add.image(WORLD_WIDTH / 2, WORLD_HEIGHT / 2, "sky").setDisplaySize(WORLD_WIDTH, WORLD_HEIGHT);
+  private get gameWidth() {
+    return this.scale.width;
+  }
 
-    this.add
-      .tileSprite(0, 0, WORLD_WIDTH, WORLD_HEIGHT, "farBackground")
+  private get gameHeight() {
+    return this.scale.height;
+  }
+
+  private get playerY() {
+    const bottomOffset = PLAYER_BOTTOM_OFFSET * this.screenScale;
+    return Math.max(bottomOffset, this.gameHeight - bottomOffset);
+  }
+
+  private get screenScale() {
+    return Phaser.Math.Clamp(
+      Math.min(this.gameWidth / BASE_GAME_WIDTH, this.gameHeight / BASE_GAME_HEIGHT),
+      0.62,
+      1.45
+    );
+  }
+
+  private clampPlayerX(x: number) {
+    const margin = PLAYER_MARGIN_X * this.screenScale;
+
+    return Phaser.Math.Clamp(
+      x,
+      margin,
+      Math.max(margin, this.gameWidth - margin)
+    );
+  }
+
+  private resizeWorld() {
+    this.physics.world.setBounds(0, 0, this.gameWidth, this.gameHeight);
+    this.cameras.main.setBounds(0, 0, this.gameWidth, this.gameHeight);
+  }
+
+  private handleResize() {
+    this.resizeWorld();
+    this.resizeBackground();
+    this.targetX = this.clampPlayerX(this.targetX || this.gameWidth / 2);
+
+    if (this.player) {
+      this.resizePlayer();
+      this.player.x = this.clampPlayerX(this.player.x);
+      this.player.y = this.playerY;
+    }
+  }
+
+  private createBackground() {
+    this.sky = this.add.image(0, 0, "sky").setOrigin(0);
+
+    this.farBackground = this.add
+      .tileSprite(0, 0, this.gameWidth, this.gameHeight, "farBackground")
       .setOrigin(0)
-      .setTileScale(WORLD_WIDTH / 1774, WORLD_HEIGHT / 887)
       .setScrollFactor(0.25);
 
-    this.add
-      .tileSprite(0, 0, WORLD_WIDTH, WORLD_HEIGHT, "buildings")
+    this.buildings = this.add
+      .tileSprite(0, 0, this.gameWidth, this.gameHeight, "buildings")
       .setOrigin(0)
-      .setTileScale(WORLD_WIDTH / 1774, WORLD_HEIGHT / 887)
       .setScrollFactor(0.55);
 
-    this.add
-      .tileSprite(0, 0, WORLD_WIDTH, WORLD_HEIGHT, "foreground")
+    this.foreground = this.add
+      .tileSprite(0, 0, this.gameWidth, this.gameHeight, "foreground")
       .setOrigin(0)
-      .setTileScale(WORLD_WIDTH / 1774, WORLD_HEIGHT / 887)
       .setDepth(5);
+
+    this.resizeBackground();
+  }
+
+  private resizeBackground() {
+    const width = this.gameWidth;
+    const height = this.gameHeight;
+    const tileScaleX = width / BACKGROUND_SOURCE_WIDTH;
+    const tileScaleY = height / BACKGROUND_SOURCE_HEIGHT;
+
+    this.sky?.setDisplaySize(width, height);
+
+    for (const layer of [this.farBackground, this.buildings, this.foreground]) {
+      layer?.setSize(width, height);
+      layer?.setTileScale(tileScaleX, tileScaleY);
+    }
   }
 
   private createPlayer() {
@@ -109,12 +180,20 @@ export class GameScene extends Phaser.Scene {
       repeat: -1
     });
 
-    this.player = this.physics.add.sprite(WORLD_WIDTH / 2, WORLD_HEIGHT - 72, "girlWalk", 0);
+    this.player = this.physics.add.sprite(this.gameWidth / 2, this.playerY, "girlWalk", 0);
     this.player.setDepth(8);
-    this.player.setScale(2);
     this.player.setCollideWorldBounds(true);
-    this.player.body?.setSize(16, 24, true);
+    this.resizePlayer();
     this.player.play("girl-walk");
+  }
+
+  private resizePlayer() {
+    if (!this.player) {
+      return;
+    }
+
+    this.player.setScale(PLAYER_BASE_SCALE * this.screenScale);
+    this.player.body?.setSize(16, 24, true);
   }
 
   private createEnemies() {
@@ -140,7 +219,7 @@ export class GameScene extends Phaser.Scene {
         return;
       }
 
-      this.targetX = Phaser.Math.Clamp(pointer.x, 32, WORLD_WIDTH - 32);
+      this.targetX = this.clampPlayerX(pointer.x);
     });
   }
 
@@ -156,11 +235,11 @@ export class GameScene extends Phaser.Scene {
 
     const distance = this.targetX - this.player.x;
     const keyDirection = this.getKeyboardDirection();
-    const step = 520 * (delta / 1000);
+    const step = 520 * this.screenScale * (delta / 1000);
 
     if (keyDirection !== 0) {
       const nextX = this.player.x + keyDirection * step;
-      this.player.x = Phaser.Math.Clamp(nextX, 32, WORLD_WIDTH - 32);
+      this.player.x = this.clampPlayerX(nextX);
       this.targetX = this.player.x;
       this.player.setFlipX(keyDirection < 0);
       return;
@@ -194,7 +273,7 @@ export class GameScene extends Phaser.Scene {
   private updateEnemies() {
     this.enemies?.children.each((child) => {
       const enemy = child as Phaser.Physics.Arcade.Sprite;
-      if (enemy.y > WORLD_HEIGHT + 48) {
+      if (enemy.y > this.gameHeight + 48 * this.screenScale) {
         enemy.destroy();
       }
       return true;
@@ -235,18 +314,19 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const x = Phaser.Math.Between(36, WORLD_WIDTH - 36);
-    const enemy = this.enemies.create(x, -96, "fallingObstacle") as Phaser.Physics.Arcade.Sprite;
+    const margin = 36 * this.screenScale;
+    const x = Phaser.Math.Between(margin, Math.max(margin, this.gameWidth - margin));
+    const enemy = this.enemies.create(x, -96 * this.screenScale, "fallingObstacle") as Phaser.Physics.Arcade.Sprite;
     const speed = Math.min(
       this.spawnConfig.speedMax,
       this.spawnConfig.speedStart + this.state.score * this.spawnConfig.difficultyRamp * 100
-    );
+    ) * this.screenScale;
 
     enemy.setDepth(7);
-    enemy.setDisplaySize(28, 92);
+    enemy.setDisplaySize(28 * this.screenScale, 92 * this.screenScale);
     enemy.setVelocityY(speed);
     enemy.setAngularVelocity(Phaser.Math.Between(-24, 24));
-    enemy.body?.setSize(16, 68, true);
+    enemy.body?.setSize(16 * this.screenScale, 68 * this.screenScale, true);
   }
 
   private prepareGame() {
@@ -255,11 +335,11 @@ export class GameScene extends Phaser.Scene {
     this.state.hp = this.state.maxHp;
     this.scoreTimer = 0;
     this.spawnTimer = this.spawnConfig.initialDelayMs;
-    this.targetX = WORLD_WIDTH / 2;
+    this.targetX = this.gameWidth / 2;
     this.enemies?.clear(true, true);
 
     if (this.player) {
-      this.player.enableBody(true, WORLD_WIDTH / 2, WORLD_HEIGHT - 72, true, true);
+      this.player.enableBody(true, this.gameWidth / 2, this.playerY, true, true);
       this.player.setAlpha(1);
       this.player.play("girl-walk", true);
     }
@@ -281,11 +361,11 @@ export class GameScene extends Phaser.Scene {
     this.state.hp = this.state.maxHp;
     this.scoreTimer = 0;
     this.spawnTimer = 250;
-    this.targetX = WORLD_WIDTH / 2;
+    this.targetX = this.gameWidth / 2;
     this.enemies?.clear(true, true);
 
     if (this.player) {
-      this.player.enableBody(true, WORLD_WIDTH / 2, WORLD_HEIGHT - 72, true, true);
+      this.player.enableBody(true, this.gameWidth / 2, this.playerY, true, true);
       this.player.setAlpha(1);
       this.player.play("girl-walk", true);
     }

@@ -2,9 +2,6 @@ import type * as Phaser from "phaser";
 import { GameScene } from "@/game/scenes/GameScene";
 import { UIScene } from "@/game/scenes/UIScene";
 
-const GAME_WIDTH = 960;
-const GAME_HEIGHT = 540;
-
 export async function createGame(parent: HTMLElement): Promise<Phaser.Game> {
   const PhaserRuntime = await import("phaser");
 
@@ -13,10 +10,11 @@ export async function createGame(parent: HTMLElement): Promise<Phaser.Game> {
     parent,
     backgroundColor: "#05070f",
     scale: {
-      mode: PhaserRuntime.Scale.FIT,
+      mode: PhaserRuntime.Scale.RESIZE,
       autoCenter: PhaserRuntime.Scale.CENTER_BOTH,
-      width: GAME_WIDTH,
-      height: GAME_HEIGHT
+      width: Math.max(1, parent.clientWidth),
+      height: Math.max(1, parent.clientHeight),
+      fullscreenTarget: parent
     },
     physics: {
       default: "arcade",

@@ -7,6 +7,7 @@ interface ImageButtonConfig {
   y: number;
   width: number;
   height: number;
+  labelSize?: number;
   onClick: () => void;
 }
 
@@ -74,12 +75,12 @@ export class UIManager {
     const label = this.scene.add
       .text(0, 0, config.label, {
         fontFamily: "Orbitron, Arial, sans-serif",
-        fontSize: "30px",
+        fontSize: `${config.labelSize ?? 30}px`,
         fontStyle: "900",
         color: "#eaf8ff",
         align: "center",
         stroke: "#061427",
-        strokeThickness: 5,
+        strokeThickness: Math.max(3, Math.round((config.labelSize ?? 30) / 6)),
         shadow: {
           offsetX: 0,
           offsetY: 0,

@@ -8,18 +8,25 @@ import {
 import { UI_ASSET_BASE } from "@/game/config/assets";
 import { UIManager } from "@/game/ui/UIManager";
 
-const GAME_WIDTH = 960;
-const GAME_HEIGHT = 540;
+const BASE_GAME_WIDTH = 960;
+const BASE_GAME_HEIGHT = 540;
 
 export class UIScene extends Phaser.Scene {
   private ui?: UIManager;
+  private hudLayer?: Phaser.GameObjects.Container;
   private scoreText?: Phaser.GameObjects.Text;
   private bestText?: Phaser.GameObjects.Text;
   private hpFill?: Phaser.GameObjects.Image;
   private titleLayer?: Phaser.GameObjects.Container;
   private gameOverLayer?: Phaser.GameObjects.Container;
   private spaceKey?: Phaser.Input.Keyboard.Key;
-  private readonly hpFillWidth = 352;
+  private hpFillWidth = 352;
+  private currentScore = 0;
+  private currentBestScore = 0;
+  private currentHp = 100;
+  private currentMaxHp = 100;
+  private isTitleVisible = false;
+  private lastGameOverPayload?: GameOverPayload;
 
   constructor() {
     super("UIScene");
@@ -41,6 +48,7 @@ export class UIScene extends Phaser.Scene {
     this.createHud();
     this.createTitle();
     this.registerEvents();
+    this.scale.on(Phaser.Scale.Events.RESIZE, this.handleResize, this);
   }
 
   private createHud() {
@@ -48,23 +56,102 @@ export class UIScene extends Phaser.Scene {
       return;
     }
 
-    this.ui.createImage("uiPanelScore", 102, 54, 190, 74, 90);
-    this.ui.createLabel("SCORE", 48, 34, 12, 101, [0, 0.5]);
-    this.scoreText = this.ui.createLabel("0", 48, 58, 25, 101, [0, 0.5]);
+    this.hudLayer?.destroy(true);
+    this.hudLayer = this.add.container(0, 0).setDepth(90).setScrollFactor(0);
 
-    this.ui.createImage("uiPanelScore", GAME_WIDTH - 102, 54, 190, 74, 90);
-    this.ui.createLabel("BEST", GAME_WIDTH - 156, 34, 12, 101, [0, 0.5]);
-    this.bestText = this.ui.createLabel("0", GAME_WIDTH - 156, 58, 25, 101, [0, 0.5]);
+    const width = this.gameWidth;
+    const scale = this.uiScale;
+    const compact = width < 700;
+    const margin = 28 * scale;
+    const panelWidth = 190 * scale;
+    const panelHeight = 74 * scale;
+    const panelY = margin + panelHeight / 2;
+    const labelInset = 54 * scale;
+    const labelSize = 12 * scale;
+    const valueSize = 25 * scale;
+    const labelY = panelY - 14 * scale;
+    const valueY = panelY + 8 * scale;
+    const scorePanelX = margin + panelWidth / 2;
+    const bestPanelX = width - margin - panelWidth / 2;
+    const hpY = compact ? margin + panelHeight + 34 * scale : 42 * scale;
+    const availableHudWidth = Math.max(1, width - margin * 2);
+    const hpFrameWidth = compact
+      ? Math.min(384 * scale, Math.max(180 * scale, availableHudWidth))
+      : Math.min(384 * scale, Math.max(280 * scale, width * 0.4));
+    const hpFrameHeight = 40 * scale;
+    const hpFillHeight = 18 * scale;
+
+    this.hpFillWidth = Math.max(1, hpFrameWidth - 32 * scale);
+
+    const scorePanel = this.ui.createImage(
+      "uiPanelScore",
+      scorePanelX,
+      panelY,
+      panelWidth,
+      panelHeight,
+      90
+    );
+    const scoreLabel = this.ui.createLabel(
+      "SCORE",
+      scorePanelX - panelWidth / 2 + labelInset,
+      labelY,
+      labelSize,
+      101,
+      [0, 0.5]
+    );
+    this.scoreText = this.ui.createLabel(
+      String(this.currentScore),
+      scorePanelX - panelWidth / 2 + labelInset,
+      valueY,
+      valueSize,
+      101,
+      [0, 0.5]
+    );
+
+    const bestPanel = this.ui.createImage(
+      "uiPanelScore",
+      bestPanelX,
+      panelY,
+      panelWidth,
+      panelHeight,
+      90
+    );
+    const bestLabel = this.ui.createLabel(
+      "BEST",
+      bestPanelX - panelWidth / 2 + labelInset,
+      labelY,
+      labelSize,
+      101,
+      [0, 0.5]
+    );
+    this.bestText = this.ui.createLabel(
+      String(this.currentBestScore),
+      bestPanelX - panelWidth / 2 + labelInset,
+      valueY,
+      valueSize,
+      101,
+      [0, 0.5]
+    );
 
     this.hpFill = this.add
-      .image(GAME_WIDTH / 2, 42, "uiHpBarFill")
-      .setDisplaySize(this.hpFillWidth, 18)
+      .image(width / 2 - this.hpFillWidth / 2, hpY, "uiHpBarFill")
+      .setDisplaySize(this.hpFillDisplayWidth, hpFillHeight)
       .setScrollFactor(0)
       .setDepth(96);
     this.hpFill.setOrigin(0, 0.5);
-    this.hpFill.setPosition(GAME_WIDTH / 2 - this.hpFillWidth / 2, 42);
 
-    this.ui.createImage("uiHpBarFrame", GAME_WIDTH / 2, 42, 384, 40, 97);
+    const hpFrame = this.ui.createImage("uiHpBarFrame", width / 2, hpY, hpFrameWidth, hpFrameHeight, 97);
+
+    this.hudLayer.add([
+      scorePanel,
+      scoreLabel,
+      this.scoreText,
+      bestPanel,
+      bestLabel,
+      this.bestText,
+      this.hpFill,
+      hpFrame
+    ]);
   }
 
   private createTitle() {
@@ -74,16 +161,30 @@ export class UIScene extends Phaser.Scene {
 
     this.titleLayer?.destroy(true);
     this.titleLayer = this.add.container(0, 0).setDepth(130).setScrollFactor(0);
+    this.isTitleVisible = true;
 
-    const title = this.ui.createLabel("CYBER TOKYO RUNNER", GAME_WIDTH / 2, 190, 34, 131);
-    const hint = this.ui.createLabel("SPACE TO START / ARROW KEYS", GAME_WIDTH / 2, 238, 16, 131);
+    const width = this.gameWidth;
+    const height = this.gameHeight;
+    const scale = this.uiScale;
+    const titleSize = 34 * scale;
+    const hintSize = 16 * scale;
+    const buttonWidth = 360 * scale;
+    const buttonHeight = 96 * scale;
+    const centerX = width / 2;
+    const titleY = Phaser.Math.Clamp(height * 0.35, 120 * scale, 210 * scale);
+    const hintY = titleY + 48 * scale;
+    const buttonY = Phaser.Math.Clamp(height * 0.6, hintY + 74 * scale, height - 88 * scale);
+
+    const title = this.ui.createLabel("CYBER TOKYO RUNNER", centerX, titleY, titleSize, 131);
+    const hint = this.ui.createLabel("SPACE TO START / ARROW KEYS", centerX, hintY, hintSize, 131);
     const button = this.ui.createButton({
       key: "uiButtonStart",
       label: "START",
-      x: GAME_WIDTH / 2,
-      y: 322,
-      width: 360,
-      height: 96,
+      x: centerX,
+      y: buttonY,
+      width: buttonWidth,
+      height: buttonHeight,
+      labelSize: 30 * scale,
       onClick: () => this.startFromTitle()
     });
 
@@ -106,8 +207,19 @@ export class UIScene extends Phaser.Scene {
       return;
     }
 
+    this.tryMobileFullscreen();
     this.hideTitle();
     gameEvents.emit("ui:start");
+  }
+
+  private tryMobileFullscreen() {
+    const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
+
+    if (!isTouchDevice || !this.scale.fullscreen.available || this.scale.isFullscreen) {
+      return;
+    }
+
+    this.scale.startFullscreen();
   }
 
   private showGameOver(payload: GameOverPayload) {
@@ -115,19 +227,32 @@ export class UIScene extends Phaser.Scene {
       return;
     }
 
+    this.lastGameOverPayload = payload;
     this.gameOverLayer?.destroy(true);
     this.gameOverLayer = this.add.container(0, 0).setDepth(140).setScrollFactor(0);
 
-    const popup = this.ui.createImage("uiPopupFrame", GAME_WIDTH / 2, 260, 620, 155, 140);
-    const title = this.ui.createLabel("GAME OVER", GAME_WIDTH / 2, 238, 30, 141);
-    const score = this.ui.createLabel(`SCORE ${payload.score}`, GAME_WIDTH / 2, 280, 18, 141);
+    const width = this.gameWidth;
+    const height = this.gameHeight;
+    const scale = this.uiScale;
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const availablePopupWidth = Math.max(1, width - 32 * scale);
+    const popupWidth = Math.min(620 * scale, Math.max(280 * scale, Math.min(width * 0.72, availablePopupWidth)));
+    const popupHeight = 155 * scale;
+    const buttonWidth = Math.min(300 * scale, Math.max(220 * scale, Math.min(width * 0.34, availablePopupWidth)));
+    const buttonHeight = 80 * scale;
+
+    const popup = this.ui.createImage("uiPopupFrame", centerX, centerY - 8, popupWidth, popupHeight, 140);
+    const title = this.ui.createLabel("GAME OVER", centerX, centerY - 30 * scale, 30 * scale, 141);
+    const score = this.ui.createLabel(`SCORE ${payload.score}`, centerX, centerY + 14 * scale, 18 * scale, 141);
     const button = this.ui.createButton({
       key: "uiButtonRetry",
       label: "RETRY",
-      x: GAME_WIDTH / 2,
-      y: 348,
-      width: 300,
-      height: 80,
+      x: centerX,
+      y: centerY + popupHeight / 2 + 52 * scale,
+      width: buttonWidth,
+      height: buttonHeight,
+      labelSize: 30 * scale,
       onClick: () => {
         this.hideGameOver();
         gameEvents.emit("ui:restart");
@@ -149,6 +274,7 @@ export class UIScene extends Phaser.Scene {
       return;
     }
 
+    this.isTitleVisible = false;
     this.tweens.add({
       targets: this.titleLayer,
       alpha: 0,
@@ -158,6 +284,7 @@ export class UIScene extends Phaser.Scene {
       onComplete: () => {
         this.titleLayer?.destroy(true);
         this.titleLayer = undefined;
+        this.isTitleVisible = false;
       }
     });
   }
@@ -165,9 +292,12 @@ export class UIScene extends Phaser.Scene {
   private hideGameOver() {
     this.gameOverLayer?.destroy(true);
     this.gameOverLayer = undefined;
+    this.lastGameOverPayload = undefined;
   }
 
   private updateScore(payload: ScorePayload) {
+    this.currentScore = payload.score;
+    this.currentBestScore = payload.bestScore;
     this.scoreText?.setText(String(payload.score));
     this.bestText?.setText(String(payload.bestScore));
 
@@ -182,17 +312,52 @@ export class UIScene extends Phaser.Scene {
   }
 
   private updateHealth(payload: HealthPayload) {
+    this.currentHp = payload.hp;
+    this.currentMaxHp = payload.maxHp;
+
     if (!this.hpFill) {
       return;
     }
 
-    const ratio = Phaser.Math.Clamp(payload.hp / payload.maxHp, 0, 1);
     this.tweens.add({
       targets: this.hpFill,
-      displayWidth: Math.max(1, this.hpFillWidth * ratio),
+      displayWidth: this.hpFillDisplayWidth,
       duration: 160,
       ease: "Sine.easeOut"
     });
+  }
+
+  private get gameWidth() {
+    return this.scale.width;
+  }
+
+  private get gameHeight() {
+    return this.scale.height;
+  }
+
+  private get uiScale() {
+    return Phaser.Math.Clamp(
+      Math.min(this.gameWidth / BASE_GAME_WIDTH, this.gameHeight / BASE_GAME_HEIGHT),
+      0.62,
+      1.45
+    );
+  }
+
+  private get hpFillDisplayWidth() {
+    const ratio = Phaser.Math.Clamp(this.currentHp / this.currentMaxHp, 0, 1);
+    return Math.max(1, this.hpFillWidth * ratio);
+  }
+
+  private handleResize() {
+    this.createHud();
+
+    if (this.isTitleVisible) {
+      this.createTitle();
+    }
+
+    if (this.lastGameOverPayload) {
+      this.showGameOver(this.lastGameOverPayload);
+    }
   }
 
   private registerEvents() {
