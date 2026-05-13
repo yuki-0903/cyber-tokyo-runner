@@ -128,17 +128,19 @@ export class GameScene extends Phaser.Scene {
   private configureCamera() {
     const camera = this.cameras.main;
     camera.setViewport(0, 0, this.scale.width, this.scale.height);
-    camera.setBounds(0, 0, this.gameWidth, this.gameHeight);
-    camera.setScroll(0, 0);
 
     if (this.isRotatedTouchView()) {
+      camera.removeBounds();
+      camera.setOrigin(0.5, this.gameHeight / (this.gameWidth * 2));
       camera.setRotation(Math.PI / 2);
-      camera.centerOn(this.gameWidth / 2, this.gameHeight / 2);
+      camera.setScroll(0, 0);
       return;
     }
 
+    camera.setBounds(0, 0, this.gameWidth, this.gameHeight);
+    camera.setOrigin(0, 0);
     camera.setRotation(0);
-    camera.centerOn(this.gameWidth / 2, this.gameHeight / 2);
+    camera.setScroll(0, 0);
   }
 
   private handleResize() {

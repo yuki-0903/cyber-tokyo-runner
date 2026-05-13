@@ -17,7 +17,7 @@ export async function createGame(parent: HTMLElement): Promise<Phaser.Game> {
     },
     scale: {
       mode: PhaserRuntime.Scale.RESIZE,
-      autoCenter: PhaserRuntime.Scale.CENTER_BOTH,
+      autoCenter: PhaserRuntime.Scale.NO_CENTER,
       width: Math.max(1, parent.clientWidth),
       height: Math.max(1, parent.clientHeight),
       fullscreenTarget: parent
