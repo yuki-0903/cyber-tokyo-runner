@@ -11,6 +11,22 @@ npm run dev
 
 ブラウザで `http://localhost:3000` を開きます。
 
+## GitHub Pages
+
+`main` ブランチにpushすると、GitHub Actionsで静的サイトを書き出してGitHub Pagesへデプロイします。
+
+公開URL:
+
+```text
+https://yuki-0903.github.io/cyber-tokyo-runner/
+```
+
+ローカルでGitHub Pages用の書き出しを確認する場合:
+
+```bash
+NEXT_PUBLIC_BASE_PATH=/cyber-tokyo-runner npm run build
+```
+
 ## ディレクトリ構成
 
 ```text

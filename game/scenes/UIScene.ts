@@ -5,9 +5,9 @@ import {
   type HealthPayload,
   type ScorePayload
 } from "@/game/systems/GameEvents";
+import { UI_ASSET_BASE } from "@/game/config/assets";
 import { UIManager } from "@/game/ui/UIManager";
 
-const UI_ASSET_BASE = "/assets/ui/parts";
 const GAME_WIDTH = 960;
 const GAME_HEIGHT = 540;
 

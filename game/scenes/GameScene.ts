@@ -1,9 +1,9 @@
 import * as Phaser from "phaser";
+import { ASSET_BASE } from "@/game/config/assets";
 import { gameEvents } from "@/game/systems/GameEvents";
 import { gameServices } from "@/game/systems/GameServices";
 import type { RuntimeGameState, SpawnConfig } from "@/game/types/GameState";
 
-const ASSET_BASE = "/assets";
 const WORLD_WIDTH = 960;
 const WORLD_HEIGHT = 540;
 
