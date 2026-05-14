@@ -42,12 +42,15 @@ export class UIScene extends Phaser.Scene {
   private hudLayer?: Phaser.GameObjects.Container;
   private scoreText?: Phaser.GameObjects.Text;
   private bestText?: Phaser.GameObjects.Text;
+  private bestPanel?: Phaser.GameObjects.Image;
+  private bestPanelBounds?: { x: number; y: number; width: number; height: number };
   private hpEmptyFill?: Phaser.GameObjects.Image;
   private hpFill?: Phaser.GameObjects.Image;
   private hpFrame?: Phaser.GameObjects.Image;
   private titleLayer?: Phaser.GameObjects.Container;
   private gameOverLayer?: Phaser.GameObjects.Container;
   private spaceKey?: Phaser.Input.Keyboard.Key;
+  private enterKey?: Phaser.Input.Keyboard.Key;
   private hpFillWidth = 352;
   private hpFillX = 0;
   private hpFillY = 0;
@@ -56,6 +59,7 @@ export class UIScene extends Phaser.Scene {
   private currentHp = 100;
   private currentMaxHp = 100;
   private isTitleVisible = false;
+  private hasPlayedBestUpdateEffect = false;
   private lastGameOverPayload?: GameOverPayload;
 
   constructor() {
@@ -95,7 +99,7 @@ export class UIScene extends Phaser.Scene {
     const compact = width < 700;
     const margin = 28 * scale;
     const panelWidth = 190 * scale;
-    const panelHeight = 74 * scale;
+    const panelHeight = 92 * scale;
     const panelY = margin + panelHeight / 2;
     const labelInset = 54 * scale;
     const labelSize = 12 * scale;
@@ -149,6 +153,13 @@ export class UIScene extends Phaser.Scene {
       panelHeight,
       90
     );
+    this.bestPanel = bestPanel;
+    this.bestPanelBounds = {
+      x: bestPanelX,
+      y: panelY,
+      width: panelWidth,
+      height: panelHeight
+    };
     const bestLabel = this.ui.createLabel(
       "BEST",
       bestPanelX - panelWidth / 2 + labelInset,
@@ -234,16 +245,131 @@ export class UIScene extends Phaser.Scene {
     });
 
     this.titleLayer.add([title, hint, button]);
+    this.playTitleStartupIntro(title, hint, button, buttonWidth, buttonY);
+  }
+
+  private playTitleStartupIntro(
+    title: Phaser.GameObjects.Text,
+    hint: Phaser.GameObjects.Text,
+    button: Phaser.GameObjects.Container,
+    buttonWidth: number,
+    buttonY: number
+  ) {
+    const hudItems = this.hudLayer?.getAll() ?? [];
+
+    hudItems.forEach((item, index) => {
+      const gameObject = item as Phaser.GameObjects.GameObject & {
+        alpha?: number;
+        y?: number;
+        setAlpha?: (value: number) => typeof item;
+      };
+
+      if (!gameObject.setAlpha || typeof gameObject.y !== "number") {
+        return;
+      }
+
+      this.tweens.killTweensOf(gameObject);
+      const targetY = gameObject.y;
+      gameObject.setAlpha(0);
+      gameObject.y = targetY - 6 * this.uiScale;
+
+      this.tweens.add({
+        targets: gameObject,
+        alpha: 1,
+        y: targetY,
+        delay: 90 + index * 34,
+        duration: 260,
+        ease: "Sine.easeOut"
+      });
+    });
+
+    this.tweens.killTweensOf([title, hint, button]);
+    title.setAlpha(0);
+    hint.setAlpha(0);
+    button.setAlpha(0);
+    button.setScale(0.98);
+    button.y = buttonY + 12 * this.uiScale;
+
+    this.time.delayedCall(360, () => title.setAlpha(0.42));
+    this.time.delayedCall(440, () => title.setAlpha(0));
+    this.time.delayedCall(540, () => title.setAlpha(0.78));
+    this.time.delayedCall(620, () => title.setAlpha(0.22));
+
+    this.tweens.add({
+      targets: title,
+      alpha: 1,
+      duration: 180,
+      delay: 720,
+      ease: "Sine.easeOut"
+    });
+
+    this.tweens.add({
+      targets: hint,
+      alpha: 1,
+      delay: 980,
+      duration: 260,
+      ease: "Sine.easeOut"
+    });
+
+    this.tweens.add({
+      targets: button,
+      alpha: 1,
+      y: buttonY,
+      scale: 1,
+      delay: 1120,
+      duration: 340,
+      ease: "Back.easeOut",
+      onComplete: () => this.playStartButtonReadyEffect(button, buttonWidth)
+    });
+  }
+
+  private playStartButtonReadyEffect(button: Phaser.GameObjects.Container, buttonWidth: number) {
+    const scan = this.add
+      .image(-buttonWidth * 0.4, 0, HP_SCAN_KEY)
+      .setDisplaySize(120 * this.uiScale, 72 * this.uiScale)
+      .setAlpha(0.9)
+      .setBlendMode(Phaser.BlendModes.ADD);
+
+    button.add(scan);
+
+    this.tweens.add({
+      targets: scan,
+      x: buttonWidth * 0.4,
+      alpha: { from: 0.9, to: 0 },
+      duration: 560,
+      ease: "Sine.easeOut",
+      onComplete: () => scan.destroy()
+    });
+
+    this.tweens.add({
+      targets: button,
+      scale: { from: 1, to: 1.025 },
+      yoyo: true,
+      duration: 170,
+      ease: "Sine.easeOut"
+    });
   }
 
   private createKeyboardShortcuts() {
     this.spaceKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
     this.spaceKey?.on("down", () => {
+      if (this.gameOverLayer) {
+        this.restartFromGameOver();
+        return;
+      }
+
       if (!this.titleLayer || this.gameOverLayer) {
         return;
       }
 
       this.startFromTitle();
+    });
+
+    this.enterKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER);
+    this.enterKey?.on("down", () => {
+      if (this.gameOverLayer) {
+        this.restartFromGameOver();
+      }
     });
   }
 
@@ -255,6 +381,15 @@ export class UIScene extends Phaser.Scene {
     this.tryMobileFullscreen();
     this.hideTitle();
     gameEvents.emit("ui:start");
+  }
+
+  private restartFromGameOver() {
+    if (!this.gameOverLayer) {
+      return;
+    }
+
+    this.hideGameOver();
+    gameEvents.emit("ui:restart");
   }
 
   private tryMobileFullscreen() {
@@ -298,10 +433,7 @@ export class UIScene extends Phaser.Scene {
       width: buttonWidth,
       height: buttonHeight,
       labelSize: 30 * scale,
-      onClick: () => {
-        this.hideGameOver();
-        gameEvents.emit("ui:restart");
-      }
+      onClick: () => this.restartFromGameOver()
     });
 
     this.gameOverLayer.add([popup, title, score, button]);
@@ -341,19 +473,64 @@ export class UIScene extends Phaser.Scene {
   }
 
   private updateScore(payload: ScorePayload) {
+    const didUpdateBest = !this.hasPlayedBestUpdateEffect && payload.bestScore > this.currentBestScore;
+
     this.currentScore = payload.score;
     this.currentBestScore = payload.bestScore;
     this.scoreText?.setText(String(payload.score));
     this.bestText?.setText(String(payload.bestScore));
 
-    if (this.scoreText) {
-      this.tweens.add({
-        targets: this.scoreText,
-        scale: { from: 1.16, to: 1 },
-        duration: 130,
-        ease: "Sine.easeOut"
-      });
+    if (didUpdateBest && payload.bestScore > 0) {
+      this.hasPlayedBestUpdateEffect = true;
+      this.playBestUpdateEffect();
     }
+  }
+
+  private playBestUpdateEffect() {
+    if (!this.hudLayer || !this.bestPanel || !this.bestText || !this.bestPanelBounds) {
+      return;
+    }
+
+    const { x, y, width, height } = this.bestPanelBounds;
+
+    this.tweens.killTweensOf([this.bestPanel, this.bestText]);
+    this.bestPanel.setAlpha(1);
+    this.bestText.setAlpha(1);
+
+    const scan = this.add
+      .image(x - width * 0.42, y, HP_SCAN_KEY)
+      .setDisplaySize(78 * this.uiScale, height * 0.86)
+      .setScrollFactor(0)
+      .setDepth(103)
+      .setAlpha(0.72)
+      .setBlendMode(Phaser.BlendModes.ADD);
+
+    this.hudLayer.add(scan);
+
+    this.tweens.add({
+      targets: scan,
+      x: x + width * 0.42,
+      alpha: { from: 0.72, to: 0 },
+      duration: 420,
+      ease: "Sine.easeOut",
+      onComplete: () => scan.destroy()
+    });
+
+    this.tweens.add({
+      targets: this.bestPanel,
+      alpha: { from: 1, to: 0.84 },
+      yoyo: true,
+      duration: 130,
+      ease: "Sine.easeOut"
+    });
+
+    this.tweens.add({
+      targets: this.bestText,
+      alpha: { from: 1, to: 0.7 },
+      yoyo: true,
+      duration: 130,
+      ease: "Sine.easeOut"
+    });
   }
 
   private updateHealth(payload: HealthPayload) {
@@ -701,6 +878,7 @@ export class UIScene extends Phaser.Scene {
     gameEvents.on("game:start", () => this.playHpIntroCharge());
     gameEvents.on("game:over", (payload) => this.showGameOver(payload));
     gameEvents.on("game:restart", () => {
+      this.hasPlayedBestUpdateEffect = false;
       this.hideGameOver();
     });
   }
