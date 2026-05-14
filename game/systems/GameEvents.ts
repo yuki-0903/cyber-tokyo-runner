@@ -8,6 +8,12 @@ export interface HealthPayload {
   maxHp: number;
 }
 
+export interface PickupHealedPayload {
+  hp: number;
+  maxHp: number;
+  amount: number;
+}
+
 export interface GameOverPayload {
   score: number;
   bestScore: number;
@@ -23,6 +29,7 @@ type GameEventMap = {
   "game:start": undefined;
   "score:changed": ScorePayload;
   "health:changed": HealthPayload;
+  "pickup:healed": PickupHealedPayload;
   "game:over": GameOverPayload;
   "game:restart": undefined;
   "audio:settings-changed": AudioSettingsPayload;

@@ -4,6 +4,7 @@ import { gameEvents } from "@/game/systems/GameEvents";
 import { gameServices } from "@/game/systems/GameServices";
 import { loadAudioSettings, type AudioSettings } from "@/game/systems/AudioSettings";
 import { ObstacleManager } from "@/game/systems/ObstacleManager";
+import { PickupManager } from "@/game/systems/PickupManager";
 import type { RuntimeGameState } from "@/game/types/GameState";
 
 const BACKGROUND_SOURCE_WIDTH = 1774;
@@ -17,12 +18,16 @@ const START_OBSTACLE_DELAY_MS = 1220;
 const BGM_MAIN_KEY = "bgmMainLoop";
 const START_SE_KEY = "seStart";
 const HIT_SE_KEY = "seHit";
+const HEAL_SE_KEY = "seHealPickup";
 const BGM_START_DELAY_MS = 520;
+const HEAL_AMOUNT = 25;
+const FULL_HP_PICKUP_SCORE = 5;
 type LoopingBgm = Phaser.Sound.HTML5AudioSound | Phaser.Sound.WebAudioSound;
 
 export class GameScene extends Phaser.Scene {
   private player?: Phaser.Physics.Arcade.Sprite;
   private obstacleManager?: ObstacleManager;
+  private pickupManager?: PickupManager;
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
   private sky?: Phaser.GameObjects.Image;
   private farBackground?: Phaser.GameObjects.TileSprite;
@@ -69,7 +74,9 @@ export class GameScene extends Phaser.Scene {
     this.load.audio(BGM_MAIN_KEY, `${AUDIO_ASSET_BASE}/bgm_main_loop.mp3`);
     this.load.audio(START_SE_KEY, `${AUDIO_ASSET_BASE}/se_start.mp3`);
     this.load.audio(HIT_SE_KEY, `${AUDIO_ASSET_BASE}/se_hit.mp3`);
+    this.load.audio(HEAL_SE_KEY, `${AUDIO_ASSET_BASE}/se_recovery.mp3`);
     ObstacleManager.preload(this);
+    PickupManager.preload(this);
   }
 
   create() {
@@ -80,6 +87,7 @@ export class GameScene extends Phaser.Scene {
     this.createPlayer();
     ObstacleManager.prepareTextures(this);
     this.createObstacles();
+    this.createPickups();
     this.createInput();
     this.createEvents();
     this.scale.on(Phaser.Scale.Events.RESIZE, this.handleResize, this);
@@ -87,12 +95,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number) {
-    if (this.state.phase !== "playing" || !this.player || !this.obstacleManager) {
+    if (this.state.phase !== "playing" || !this.player || !this.obstacleManager || !this.pickupManager) {
       return;
     }
 
     this.updatePlayer(delta);
     this.obstacleManager.update(delta, this.state.score);
+    this.pickupManager.update(delta, {
+      score: this.state.score
+    });
     this.updateScore(delta);
   }
 
@@ -238,6 +249,19 @@ export class GameScene extends Phaser.Scene {
 
     this.physics.add.overlap(this.player!, this.obstacleManager.group, (_player, enemy) => {
       this.damagePlayer(enemy as Phaser.Physics.Arcade.Sprite);
+    });
+  }
+
+  private createPickups() {
+    this.pickupManager = new PickupManager(this, {
+      getGameWidth: () => this.gameWidth,
+      getGameHeight: () => this.gameHeight,
+      getScreenScale: () => this.screenScale,
+      getPlayerX: () => this.player?.x ?? this.gameWidth / 2
+    });
+
+    this.physics.add.overlap(this.player!, this.pickupManager.group, (_player, pickup) => {
+      this.collectPickup(pickup as Phaser.Physics.Arcade.Sprite);
     });
   }
 
@@ -462,6 +486,7 @@ export class GameScene extends Phaser.Scene {
     this.hideHoldTouchEffect();
     this.resetHitStop();
     this.obstacleManager?.reset();
+    this.pickupManager?.reset();
 
     if (this.player) {
       this.player.enableBody(true, this.gameWidth / 2, this.playerY, true, true);
@@ -492,6 +517,7 @@ export class GameScene extends Phaser.Scene {
     this.hideHoldTouchEffect();
     this.resetHitStop();
     this.obstacleManager?.reset(START_OBSTACLE_DELAY_MS);
+    this.pickupManager?.reset(START_OBSTACLE_DELAY_MS + 1400);
 
     if (this.player) {
       this.player.enableBody(true, this.gameWidth / 2, this.playerY, true, true);
@@ -532,6 +558,40 @@ export class GameScene extends Phaser.Scene {
     if (this.state.hp <= 0) {
       void this.gameOver();
     }
+  }
+
+  private collectPickup(pickup: Phaser.Physics.Arcade.Sprite) {
+    if (this.state.phase !== "playing" || !pickup.active) {
+      return;
+    }
+
+    const pickupX = pickup.x;
+    const pickupY = pickup.y;
+    this.pickupManager?.collect(pickup);
+    this.playHealSound();
+    this.playPickupCollectFeedback(pickupX, pickupY);
+
+    const healAmount = Math.min(HEAL_AMOUNT, this.state.maxHp - this.state.hp);
+    if (healAmount > 0) {
+      this.state.hp += healAmount;
+      gameEvents.emit("health:changed", {
+        hp: this.state.hp,
+        maxHp: this.state.maxHp
+      });
+    } else {
+      this.state.score += FULL_HP_PICKUP_SCORE;
+      this.state.bestScore = Math.max(this.state.bestScore, this.state.score);
+      gameEvents.emit("score:changed", {
+        score: this.state.score,
+        bestScore: this.state.bestScore
+      });
+    }
+
+    gameEvents.emit("pickup:healed", {
+      hp: this.state.hp,
+      maxHp: this.state.maxHp,
+      amount: healAmount
+    });
   }
 
   private playDamageFeedback(hitX: number, hitY: number) {
@@ -666,6 +726,76 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private playPickupCollectFeedback(x: number, y: number) {
+    this.spawnPickupBurstParticles(x, y);
+    this.spawnPickupHudParticles(x, y);
+    this.cameras.main.flash(90, 120, 255, 120, false);
+  }
+
+  private spawnPickupBurstParticles(x: number, y: number) {
+    const particleCount = 13;
+
+    for (let index = 0; index < particleCount; index += 1) {
+      const angle = (Math.PI * 2 * index) / particleCount + Phaser.Math.FloatBetween(-0.18, 0.18);
+      const distance = Phaser.Math.Between(20, 72) * this.screenScale;
+      const size = Phaser.Math.FloatBetween(2.2, 5.4) * this.screenScale;
+      const color = index % 4 === 0 ? 0xd8ff22 : index % 4 === 1 ? 0x8eff4a : index % 4 === 2 ? 0x22d7ff : 0xffffff;
+      const particle = this.add
+        .circle(x, y, size, color, 0.88)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setDepth(34);
+
+      this.tweens.add({
+        targets: particle,
+        x: x + Math.cos(angle) * distance,
+        y: y + Math.sin(angle) * distance,
+        alpha: 0,
+        scale: { from: 1, to: 0.22 },
+        duration: Phaser.Math.Between(210, 390),
+        ease: "Sine.easeOut",
+        onComplete: () => particle.destroy()
+      });
+    }
+  }
+
+  private spawnPickupHudParticles(x: number, y: number) {
+    const target = this.getHpHudWorldPoint();
+    const particleCount = 7;
+
+    for (let index = 0; index < particleCount; index += 1) {
+      const startX = x + Phaser.Math.FloatBetween(-10, 10) * this.screenScale;
+      const startY = y + Phaser.Math.FloatBetween(-10, 10) * this.screenScale;
+      const particle = this.add
+        .circle(startX, startY, Phaser.Math.FloatBetween(2.4, 4.2) * this.screenScale, 0xd8ff22, 0.86)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setDepth(35);
+
+      this.tweens.add({
+        targets: particle,
+        x: target.x + Phaser.Math.FloatBetween(-34, 34) * this.screenScale,
+        y: target.y + Phaser.Math.FloatBetween(-8, 8) * this.screenScale,
+        alpha: { from: 0.92, to: 0 },
+        scale: { from: 1, to: 0.5 },
+        delay: index * 28,
+        duration: 440 + index * 18,
+        ease: "Sine.easeInOut",
+        onComplete: () => particle.destroy()
+      });
+    }
+  }
+
+  private getHpHudWorldPoint() {
+    const scale = this.screenScale;
+    const compact = this.gameWidth < 700;
+    const margin = 28 * scale;
+    const panelHeight = 92 * scale;
+
+    return {
+      x: this.gameWidth / 2,
+      y: compact ? margin + panelHeight + 34 * scale : 42 * scale
+    };
+  }
+
   private playHitSound() {
     if (!this.audioSettings.seEnabled) {
       return;
@@ -678,6 +808,14 @@ export class GameScene extends Phaser.Scene {
 
     this.lastHitSoundAt = now;
     this.sound.play(HIT_SE_KEY, { volume: 0.62 });
+  }
+
+  private playHealSound() {
+    if (!this.audioSettings.seEnabled) {
+      return;
+    }
+
+    this.sound.play(HEAL_SE_KEY, { volume: 0.62 });
   }
 
   private playStartSound() {
@@ -719,6 +857,7 @@ export class GameScene extends Phaser.Scene {
     this.player?.setVelocity(0, 0);
     this.player?.setAlpha(0.55);
     this.obstacleManager?.pause();
+    this.pickupManager?.pause();
     this.state.bestScore = Math.max(this.state.bestScore, this.state.score);
 
     gameEvents.emit("game:over", {
