@@ -65,6 +65,7 @@ export class GameScene extends Phaser.Scene {
     this.scene.launch("UIScene");
     this.createBackground();
     this.createPlayer();
+    ObstacleManager.prepareTextures(this);
     this.createObstacles();
     this.createInput();
     this.createEvents();

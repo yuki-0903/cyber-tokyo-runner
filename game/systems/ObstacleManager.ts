@@ -28,6 +28,12 @@ const SPAWN_CONFIG: SpawnConfig = {
 
 const HAZARD_DEPTH = 7;
 const BODY_SCALE = 0.58;
+const CLEAN_TEXTURE_SUFFIX = "-clean";
+const EDGE_COLOR_SEARCH_RADIUS = 3;
+const SOLID_ALPHA_FOR_COLOR_SAMPLE = 96;
+const PALE_EDGE_ALPHA_LIMIT = 238;
+const PALE_EDGE_MIN_CHANNEL = 188;
+const PALE_EDGE_MAX_SPREAD = 62;
 
 export class ObstacleManager {
   public readonly group: Phaser.Physics.Arcade.Group;
@@ -47,6 +53,42 @@ export class ObstacleManager {
   static preload(scene: Phaser.Scene) {
     for (const obstacle of TOKYO_CYBER_DEBRIS_OBSTACLES) {
       scene.load.image(obstacle.key, obstacle.path);
+    }
+  }
+
+  static prepareTextures(scene: Phaser.Scene) {
+    for (const obstacle of TOKYO_CYBER_DEBRIS_OBSTACLES) {
+      const texture = scene.textures.get(obstacle.key);
+      texture.setFilter(Phaser.Textures.FilterMode.LINEAR);
+
+      const cleanKey = this.getCleanTextureKey(obstacle.key);
+      if (scene.textures.exists(cleanKey)) {
+        scene.textures.get(cleanKey).setFilter(Phaser.Textures.FilterMode.LINEAR);
+        continue;
+      }
+
+      const sourceImage = texture.getSourceImage() as HTMLCanvasElement | HTMLImageElement;
+      const canvas = document.createElement("canvas");
+      canvas.width = sourceImage.width;
+      canvas.height = sourceImage.height;
+
+      const context = canvas.getContext("2d");
+      if (!context) {
+        continue;
+      }
+
+      context.drawImage(sourceImage, 0, 0);
+      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+      const pixels = imageData.data;
+      const sourcePixels = new Uint8ClampedArray(pixels);
+
+      for (let index = 0; index < pixels.length; index += 4) {
+        this.cleanEdgePixel(pixels, sourcePixels, index, canvas.width, canvas.height);
+      }
+
+      context.putImageData(imageData, 0, 0);
+      scene.textures.addCanvas(cleanKey, canvas);
+      scene.textures.get(cleanKey).setFilter(Phaser.Textures.FilterMode.LINEAR);
     }
   }
 
@@ -106,7 +148,7 @@ export class ObstacleManager {
     const margin = Math.max(34 * screenScale, asset.displayWidth * screenScale * 0.55);
     const x = Phaser.Math.Between(margin, Math.max(margin, gameWidth - margin));
     const y = -Math.max(asset.displayHeight * screenScale, 78 * screenScale);
-    const obstacle = this.group.create(x, y, asset.key) as Phaser.Physics.Arcade.Sprite;
+    const obstacle = this.group.create(x, y, this.getRenderTextureKey(asset)) as Phaser.Physics.Arcade.Sprite;
 
     this.setupObstacle(obstacle, asset, score);
   }
@@ -231,6 +273,128 @@ export class ObstacleManager {
   private destroyObstacle(obstacle: Phaser.Physics.Arcade.Sprite) {
     this.scene.tweens.killTweensOf(obstacle);
     obstacle.destroy();
+  }
+
+  private getRenderTextureKey(asset: ObstacleAsset) {
+    const cleanKey = ObstacleManager.getCleanTextureKey(asset.key);
+    return this.scene.textures.exists(cleanKey) ? cleanKey : asset.key;
+  }
+
+  private static getCleanTextureKey(key: string) {
+    return `${key}${CLEAN_TEXTURE_SUFFIX}`;
+  }
+
+  private static cleanEdgePixel(
+    pixels: Uint8ClampedArray,
+    sourcePixels: Uint8ClampedArray,
+    index: number,
+    width: number,
+    height: number
+  ) {
+    const alpha = pixels[index + 3];
+
+    if (alpha < 252) {
+      const bleedColor = this.findNearestSolidColor(sourcePixels, index, width, height);
+      if (bleedColor) {
+        pixels[index] = bleedColor.red;
+        pixels[index + 1] = bleedColor.green;
+        pixels[index + 2] = bleedColor.blue;
+      }
+    }
+
+    if (alpha < 24) {
+      pixels[index + 3] = 0;
+      return;
+    }
+
+    const red = pixels[index];
+    const green = pixels[index + 1];
+    const blue = pixels[index + 2];
+    const minChannel = Math.min(red, green, blue);
+    const maxChannel = Math.max(red, green, blue);
+    const isPaleEdge =
+      alpha < PALE_EDGE_ALPHA_LIMIT &&
+      minChannel > PALE_EDGE_MIN_CHANNEL &&
+      maxChannel - minChannel < PALE_EDGE_MAX_SPREAD;
+
+    if (isPaleEdge) {
+      pixels[index + 3] = Math.round(alpha * 0.08);
+      return;
+    }
+
+    if (alpha < 76) {
+      pixels[index + 3] = Math.round(alpha * 0.72);
+    }
+  }
+
+  private static findNearestSolidColor(
+    pixels: Uint8ClampedArray,
+    index: number,
+    width: number,
+    height: number
+  ) {
+    const pixelIndex = index / 4;
+    const x = pixelIndex % width;
+    const y = Math.floor(pixelIndex / width);
+    let red = 0;
+    let green = 0;
+    let blue = 0;
+    let samples = 0;
+
+    for (let radius = 1; radius <= EDGE_COLOR_SEARCH_RADIUS; radius += 1) {
+      for (let offsetY = -radius; offsetY <= radius; offsetY += 1) {
+        for (let offsetX = -radius; offsetX <= radius; offsetX += 1) {
+          if (Math.max(Math.abs(offsetX), Math.abs(offsetY)) !== radius) {
+            continue;
+          }
+
+          const sampleX = x + offsetX;
+          const sampleY = y + offsetY;
+          if (sampleX < 0 || sampleX >= width || sampleY < 0 || sampleY >= height) {
+            continue;
+          }
+
+          const sampleIndex = (sampleY * width + sampleX) * 4;
+          const sampleAlpha = pixels[sampleIndex + 3];
+          if (sampleAlpha < SOLID_ALPHA_FOR_COLOR_SAMPLE) {
+            continue;
+          }
+
+          const sampleRed = pixels[sampleIndex];
+          const sampleGreen = pixels[sampleIndex + 1];
+          const sampleBlue = pixels[sampleIndex + 2];
+          if (this.isPaleMattePixel(sampleRed, sampleGreen, sampleBlue, sampleAlpha)) {
+            continue;
+          }
+
+          red += sampleRed;
+          green += sampleGreen;
+          blue += sampleBlue;
+          samples += 1;
+        }
+      }
+
+      if (samples > 0) {
+        return {
+          red: Math.round(red / samples),
+          green: Math.round(green / samples),
+          blue: Math.round(blue / samples)
+        };
+      }
+    }
+
+    return undefined;
+  }
+
+  private static isPaleMattePixel(red: number, green: number, blue: number, alpha: number) {
+    const minChannel = Math.min(red, green, blue);
+    const maxChannel = Math.max(red, green, blue);
+
+    return (
+      alpha < PALE_EDGE_ALPHA_LIMIT &&
+      minChannel > PALE_EDGE_MIN_CHANNEL &&
+      maxChannel - minChannel < PALE_EDGE_MAX_SPREAD
+    );
   }
 
   private randomSigned(min: number, max: number) {
