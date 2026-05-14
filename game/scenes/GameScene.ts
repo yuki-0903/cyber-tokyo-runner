@@ -522,7 +522,6 @@ export class GameScene extends Phaser.Scene {
     enemy.destroy();
     this.state.hp = Math.max(0, this.state.hp - 25);
     this.playHitSound();
-    this.vibrateOnHit();
     gameEvents.emit("health:changed", {
       hp: this.state.hp,
       maxHp: this.state.maxHp
@@ -705,14 +704,6 @@ export class GameScene extends Phaser.Scene {
       this.playBgm();
       this.bgmStartEvent = undefined;
     });
-  }
-
-  private vibrateOnHit() {
-    if (typeof navigator === "undefined" || !("vibrate" in navigator)) {
-      return;
-    }
-
-    navigator.vibrate(60);
   }
 
   private async gameOver() {
