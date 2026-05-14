@@ -12,6 +12,7 @@ const BASE_GAME_HEIGHT = 540;
 const PLAYER_BOTTOM_OFFSET = 72;
 const PLAYER_MARGIN_X = 32;
 const PLAYER_BASE_SCALE = 2.55;
+const START_OBSTACLE_DELAY_MS = 1220;
 
 export class GameScene extends Phaser.Scene {
   private player?: Phaser.Physics.Arcade.Sprite;
@@ -473,7 +474,7 @@ export class GameScene extends Phaser.Scene {
     this.touchDirection = 0;
     this.hideHoldTouchEffect();
     this.resetHitStop();
-    this.obstacleManager?.reset(250);
+    this.obstacleManager?.reset(START_OBSTACLE_DELAY_MS);
 
     if (this.player) {
       this.player.enableBody(true, this.gameWidth / 2, this.playerY, true, true);

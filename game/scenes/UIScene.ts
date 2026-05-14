@@ -10,17 +10,47 @@ import { UIManager } from "@/game/ui/UIManager";
 
 const BASE_GAME_WIDTH = 960;
 const BASE_GAME_HEIGHT = 540;
+const HP_FILL_BASE_KEY = "uiHpBarFill";
+const HP_FILL_HEALTHY_KEY = "uiHpBarFillHealthy";
+const HP_FILL_WARNING_KEY = "uiHpBarFillWarning";
+const HP_FILL_DANGER_KEY = "uiHpBarFillDanger";
+const HP_FILL_EMPTY_KEY = "uiHpBarFillEmpty";
+const HP_FRAME_BASE_KEY = "uiHpBarFrame";
+const HP_FRAME_HEALTHY_KEY = "uiHpBarFrameHealthy";
+const HP_FRAME_WARNING_KEY = "uiHpBarFrameWarning";
+const HP_FRAME_DANGER_KEY = "uiHpBarFrameDanger";
+const HP_SCAN_KEY = "uiHpBarScan";
+
+const HP_FILL_VARIANTS = [
+  { key: HP_FILL_HEALTHY_KEY, color: { red: 0x00, green: 0xd8, blue: 0xff } },
+  { key: HP_FILL_WARNING_KEY, color: { red: 0xff, green: 0xc4, blue: 0x00 } },
+  { key: HP_FILL_DANGER_KEY, color: { red: 0xff, green: 0x12, blue: 0x24 } }
+] as const;
+
+const HP_FRAME_VARIANTS = [
+  { key: HP_FRAME_HEALTHY_KEY, color: { red: 0x00, green: 0x86, blue: 0xd8 } },
+  { key: HP_FRAME_WARNING_KEY, color: { red: 0xd8, green: 0xa8, blue: 0x10 } },
+  { key: HP_FRAME_DANGER_KEY, color: { red: 0xd8, green: 0x20, blue: 0x30 } }
+] as const;
+
+const HP_EMPTY_VARIANTS = [
+  { key: HP_FILL_EMPTY_KEY, color: { red: 0x28, green: 0x00, blue: 0x34 } }
+] as const;
 
 export class UIScene extends Phaser.Scene {
   private ui?: UIManager;
   private hudLayer?: Phaser.GameObjects.Container;
   private scoreText?: Phaser.GameObjects.Text;
   private bestText?: Phaser.GameObjects.Text;
+  private hpEmptyFill?: Phaser.GameObjects.Image;
   private hpFill?: Phaser.GameObjects.Image;
+  private hpFrame?: Phaser.GameObjects.Image;
   private titleLayer?: Phaser.GameObjects.Container;
   private gameOverLayer?: Phaser.GameObjects.Container;
   private spaceKey?: Phaser.Input.Keyboard.Key;
   private hpFillWidth = 352;
+  private hpFillX = 0;
+  private hpFillY = 0;
   private currentScore = 0;
   private currentBestScore = 0;
   private currentHp = 100;
@@ -36,7 +66,7 @@ export class UIScene extends Phaser.Scene {
     this.load.image("uiButtonStart", `${UI_ASSET_BASE}/button_start.png`);
     this.load.image("uiButtonRetry", `${UI_ASSET_BASE}/button_retry.png`);
     this.load.image("uiPanelScore", `${UI_ASSET_BASE}/panel_score.png`);
-    this.load.image("uiHpBarFrame", `${UI_ASSET_BASE}/hp_bar_frame.png`);
+    this.load.image(HP_FRAME_BASE_KEY, `${UI_ASSET_BASE}/hp_bar_frame.png`);
     this.load.image("uiHpBarFill", `${UI_ASSET_BASE}/hp_bar_fill.png`);
     this.load.image("uiPopupFrame", `${UI_ASSET_BASE}/popup_frame.png`);
   }
@@ -44,6 +74,7 @@ export class UIScene extends Phaser.Scene {
   create() {
     this.ui = new UIManager(this);
     this.configureCamera();
+    this.createHpBarVariants();
     this.createKeyboardShortcuts();
     this.createHud();
     this.createTitle();
@@ -79,9 +110,11 @@ export class UIScene extends Phaser.Scene {
       ? Math.min(384 * scale, Math.max(180 * scale, availableHudWidth))
       : Math.min(384 * scale, Math.max(280 * scale, width * 0.4));
     const hpFrameHeight = 40 * scale;
-    const hpFillHeight = 18 * scale;
+    const hpFillHeight = 28 * scale;
 
-    this.hpFillWidth = Math.max(1, hpFrameWidth - 32 * scale);
+    this.hpFillWidth = Math.max(1, hpFrameWidth - 24 * scale);
+    this.hpFillX = width / 2 - this.hpFillWidth / 2;
+    this.hpFillY = hpY;
 
     const scorePanel = this.ui.createImage(
       "uiPanelScore",
@@ -133,14 +166,25 @@ export class UIScene extends Phaser.Scene {
       [0, 0.5]
     );
 
+    this.hpEmptyFill = this.add
+      .image(this.hpFillX, hpY, HP_FILL_EMPTY_KEY)
+      .setDisplaySize(this.hpFillWidth, hpFillHeight)
+      .setScrollFactor(0)
+      .setDepth(95)
+      .setAlpha(0.68);
+    this.hpEmptyFill.setOrigin(0, 0.5);
+
     this.hpFill = this.add
-      .image(width / 2 - this.hpFillWidth / 2, hpY, "uiHpBarFill")
+      .image(this.hpFillX, hpY, this.hpFillTextureKey)
       .setDisplaySize(this.hpFillDisplayWidth, hpFillHeight)
       .setScrollFactor(0)
       .setDepth(96);
     this.hpFill.setOrigin(0, 0.5);
 
-    const hpFrame = this.ui.createImage("uiHpBarFrame", width / 2, hpY, hpFrameWidth, hpFrameHeight, 97);
+    this.hpFrame = this.ui
+      .createImage(this.hpFrameTextureKey, width / 2, hpY, hpFrameWidth, hpFrameHeight, 97)
+      .setAlpha(0.82);
+    this.refreshHpBarAppearance();
 
     this.hudLayer.add([
       scorePanel,
@@ -149,8 +193,9 @@ export class UIScene extends Phaser.Scene {
       bestPanel,
       bestLabel,
       this.bestText,
+      this.hpEmptyFill,
       this.hpFill,
-      hpFrame
+      this.hpFrame
     ]);
   }
 
@@ -319,10 +364,88 @@ export class UIScene extends Phaser.Scene {
       return;
     }
 
+    this.refreshHpBarAppearance();
+    this.tweens.killTweensOf(this.hpFill);
+
     this.tweens.add({
       targets: this.hpFill,
       displayWidth: this.hpFillDisplayWidth,
       duration: 160,
+      ease: "Sine.easeOut"
+    });
+  }
+
+  private playHpIntroCharge() {
+    if (!this.hpFill || !this.hpFrame) {
+      return;
+    }
+
+    this.refreshHpBarAppearance();
+    this.tweens.killTweensOf([this.hpFill, this.hpFrame]);
+    this.hpFill.setDisplaySize(1, this.hpFill.displayHeight);
+    this.hpFill.setAlpha(0.7);
+
+    this.tweens.add({
+      targets: this.hpFill,
+      displayWidth: this.hpFillDisplayWidth,
+      alpha: 1,
+      duration: 760,
+      ease: "Sine.easeOut",
+      onComplete: () => this.playHpChargeCompleteEffect()
+    });
+
+    this.tweens.add({
+      targets: this.hpFrame,
+      alpha: { from: 0.46, to: 0.82 },
+      duration: 760,
+      ease: "Sine.easeOut"
+    });
+  }
+
+  private playHpChargeCompleteEffect() {
+    if (!this.hpFill || !this.hpFrame) {
+      return;
+    }
+
+    const flash = this.add
+      .image(this.hpFillX, this.hpFillY, HP_FILL_HEALTHY_KEY)
+      .setDisplaySize(this.hpFillWidth, this.hpFill.displayHeight)
+      .setOrigin(0, 0.5)
+      .setScrollFactor(0)
+      .setDepth(99)
+      .setAlpha(0.88)
+      .setBlendMode(Phaser.BlendModes.ADD);
+
+    const scan = this.add
+      .image(this.hpFillX - 30 * this.uiScale, this.hpFillY, HP_SCAN_KEY)
+      .setDisplaySize(96 * this.uiScale, 48 * this.uiScale)
+      .setScrollFactor(0)
+      .setDepth(100)
+      .setAlpha(0.95)
+      .setBlendMode(Phaser.BlendModes.ADD);
+
+    this.tweens.add({
+      targets: flash,
+      alpha: 0,
+      scaleY: { from: 1.25, to: 1.7 },
+      duration: 260,
+      ease: "Sine.easeOut",
+      onComplete: () => flash.destroy()
+    });
+
+    this.tweens.add({
+      targets: scan,
+      x: this.hpFillX + this.hpFillWidth + 30 * this.uiScale,
+      alpha: { from: 0.95, to: 0 },
+      duration: 520,
+      ease: "Sine.easeOut",
+      onComplete: () => scan.destroy()
+    });
+
+    this.tweens.add({
+      targets: this.hpFrame,
+      alpha: { from: 0.98, to: 0.82 },
+      duration: 220,
       ease: "Sine.easeOut"
     });
   }
@@ -352,8 +475,182 @@ export class UIScene extends Phaser.Scene {
   }
 
   private get hpFillDisplayWidth() {
-    const ratio = Phaser.Math.Clamp(this.currentHp / this.currentMaxHp, 0, 1);
-    return Math.max(1, this.hpFillWidth * ratio);
+    return Math.max(1, this.hpFillWidth * this.hpRatio);
+  }
+
+  private get hpRatio() {
+    return Phaser.Math.Clamp(this.currentHp / this.currentMaxHp, 0, 1);
+  }
+
+  private get hpFillTextureKey() {
+    if (this.hpRatio <= 0.25) {
+      return HP_FILL_DANGER_KEY;
+    }
+
+    if (this.hpRatio <= 0.5) {
+      return HP_FILL_WARNING_KEY;
+    }
+
+    return HP_FILL_HEALTHY_KEY;
+  }
+
+  private get hpFrameTextureKey() {
+    if (this.hpRatio <= 0.25) {
+      return HP_FRAME_DANGER_KEY;
+    }
+
+    if (this.hpRatio <= 0.5) {
+      return HP_FRAME_WARNING_KEY;
+    }
+
+    return HP_FRAME_HEALTHY_KEY;
+  }
+
+  private refreshHpBarAppearance() {
+    if (!this.hpFill || !this.hpFrame) {
+      return;
+    }
+
+    const fillTextureKey = this.hpFillTextureKey;
+    const frameTextureKey = this.hpFrameTextureKey;
+    const didChangeFill = this.hpFill.texture.key !== fillTextureKey;
+    const didChangeFrame = this.hpFrame.texture.key !== frameTextureKey;
+
+    if (didChangeFill) {
+      this.hpFill.setTexture(fillTextureKey);
+    }
+
+    if (didChangeFrame) {
+      this.hpFrame.setTexture(frameTextureKey);
+    }
+
+    if (didChangeFill || didChangeFrame) {
+      this.tweens.add({
+        targets: this.hpFill,
+        alpha: { from: 0.58, to: 1 },
+        duration: 140,
+        ease: "Sine.easeOut"
+      });
+
+      this.tweens.add({
+        targets: this.hpFrame,
+        alpha: { from: 0.52, to: 0.82 },
+        duration: 140,
+        ease: "Sine.easeOut"
+      });
+    }
+  }
+
+  private createHpBarVariants() {
+    if (this.textures.exists(HP_FILL_HEALTHY_KEY)) {
+      return;
+    }
+
+    this.createColorVariants(HP_FILL_BASE_KEY, HP_FILL_VARIANTS, 0.88, 0.24, 1.32);
+    this.createColorVariants(HP_FILL_BASE_KEY, HP_EMPTY_VARIANTS, 0.68, 0.16, 0.78);
+    this.createColorVariants(HP_FRAME_BASE_KEY, HP_FRAME_VARIANTS, 0.48, 0.42, 0.78);
+    this.createHpScanTexture();
+  }
+
+  private createHpScanTexture() {
+    const canvas = document.createElement("canvas");
+    canvas.width = 128;
+    canvas.height = 72;
+
+    const context = canvas.getContext("2d");
+    if (!context) {
+      return;
+    }
+
+    context.save();
+    context.translate(canvas.width / 2, canvas.height / 2);
+    context.rotate((-18 * Math.PI) / 180);
+
+    const glowGradient = context.createLinearGradient(-64, 0, 64, 0);
+    glowGradient.addColorStop(0, "rgba(0, 216, 255, 0)");
+    glowGradient.addColorStop(0.3, "rgba(0, 216, 255, 0.16)");
+    glowGradient.addColorStop(0.5, "rgba(160, 248, 255, 0.38)");
+    glowGradient.addColorStop(0.7, "rgba(0, 216, 255, 0.16)");
+    glowGradient.addColorStop(1, "rgba(0, 216, 255, 0)");
+    context.fillStyle = glowGradient;
+    context.beginPath();
+    context.moveTo(-62, -28);
+    context.lineTo(52, -28);
+    context.lineTo(66, 28);
+    context.lineTo(-48, 28);
+    context.closePath();
+    context.fill();
+
+    const coreGradient = context.createLinearGradient(-54, 0, 54, 0);
+    coreGradient.addColorStop(0, "rgba(0, 216, 255, 0)");
+    coreGradient.addColorStop(0.34, "rgba(0, 216, 255, 0.28)");
+    coreGradient.addColorStop(0.5, "rgba(255, 255, 255, 0.9)");
+    coreGradient.addColorStop(0.66, "rgba(120, 246, 255, 0.4)");
+    coreGradient.addColorStop(1, "rgba(0, 216, 255, 0)");
+    context.fillStyle = coreGradient;
+    context.beginPath();
+    context.moveTo(-46, -18);
+    context.lineTo(40, -18);
+    context.lineTo(54, 18);
+    context.lineTo(-32, 18);
+    context.closePath();
+    context.fill();
+
+    context.globalAlpha = 0.48;
+    context.fillStyle = "rgba(255, 255, 255, 0.72)";
+    context.fillRect(-8, -24, 10, 48);
+    context.restore();
+
+    this.textures.addCanvas(HP_SCAN_KEY, canvas);
+  }
+
+  private createColorVariants(
+    baseKey: string,
+    variants: typeof HP_FILL_VARIANTS | typeof HP_FRAME_VARIANTS | typeof HP_EMPTY_VARIANTS,
+    brightnessBase: number,
+    brightnessRange: number,
+    alphaMultiplier: number
+  ) {
+    const sourceImage = this.textures.get(baseKey).getSourceImage() as
+      | HTMLCanvasElement
+      | HTMLImageElement;
+
+    for (const variant of variants) {
+      const canvas = document.createElement("canvas");
+      canvas.width = sourceImage.width;
+      canvas.height = sourceImage.height;
+
+      const context = canvas.getContext("2d");
+      if (!context) {
+        continue;
+      }
+
+      context.drawImage(sourceImage, 0, 0);
+
+      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+      const pixels = imageData.data;
+
+      for (let index = 0; index < pixels.length; index += 4) {
+        const alpha = pixels[index + 3];
+
+        if (alpha === 0) {
+          continue;
+        }
+
+        const sourceBrightness = Math.max(pixels[index], pixels[index + 1], pixels[index + 2]) / 255;
+        const brightness = Phaser.Math.Clamp(brightnessBase + sourceBrightness * brightnessRange, 0, 1);
+
+        pixels[index] = Math.round(variant.color.red * brightness);
+        pixels[index + 1] = Math.round(variant.color.green * brightness);
+        pixels[index + 2] = Math.round(variant.color.blue * brightness);
+        const visibleAlpha =
+          variant.key === HP_FILL_EMPTY_KEY ? Math.max(120, Math.round(alpha * alphaMultiplier)) : Math.round(alpha * alphaMultiplier);
+        pixels[index + 3] = Math.min(255, visibleAlpha);
+      }
+
+      context.putImageData(imageData, 0, 0);
+      this.textures.addCanvas(variant.key, canvas);
+    }
   }
 
   private handleResize() {
@@ -401,6 +698,7 @@ export class UIScene extends Phaser.Scene {
   private registerEvents() {
     gameEvents.on("score:changed", (payload) => this.updateScore(payload));
     gameEvents.on("health:changed", (payload) => this.updateHealth(payload));
+    gameEvents.on("game:start", () => this.playHpIntroCharge());
     gameEvents.on("game:over", (payload) => this.showGameOver(payload));
     gameEvents.on("game:restart", () => {
       this.hideGameOver();
