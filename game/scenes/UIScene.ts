@@ -5,7 +5,8 @@ import {
   type HealthPayload,
   type ScorePayload
 } from "@/game/systems/GameEvents";
-import { UI_ASSET_BASE } from "@/game/config/assets";
+import { loadAudioSettings, saveAudioSettings, type AudioSettings } from "@/game/systems/AudioSettings";
+import { UI_ASSET_BASE, UI_ICON_ASSET_BASE } from "@/game/config/assets";
 import { UIManager } from "@/game/ui/UIManager";
 
 const BASE_GAME_WIDTH = 960;
@@ -20,6 +21,10 @@ const HP_FRAME_HEALTHY_KEY = "uiHpBarFrameHealthy";
 const HP_FRAME_WARNING_KEY = "uiHpBarFrameWarning";
 const HP_FRAME_DANGER_KEY = "uiHpBarFrameDanger";
 const HP_SCAN_KEY = "uiHpBarScan";
+const ICON_MUSIC_ON_KEY = "iconMusicOn";
+const ICON_MUSIC_OFF_KEY = "iconMusicOff";
+const ICON_VOLUME_ON_KEY = "iconVolumeOn";
+const ICON_VOLUME_OFF_KEY = "iconVolumeOff";
 
 const HP_FILL_VARIANTS = [
   { key: HP_FILL_HEALTHY_KEY, color: { red: 0x00, green: 0xd8, blue: 0xff } },
@@ -49,6 +54,8 @@ export class UIScene extends Phaser.Scene {
   private hpFrame?: Phaser.GameObjects.Image;
   private titleLayer?: Phaser.GameObjects.Container;
   private gameOverLayer?: Phaser.GameObjects.Container;
+  private titleAudioControls?: Phaser.GameObjects.Container;
+  private gameOverAudioControls?: Phaser.GameObjects.Container;
   private spaceKey?: Phaser.Input.Keyboard.Key;
   private enterKey?: Phaser.Input.Keyboard.Key;
   private hpFillWidth = 352;
@@ -58,7 +65,9 @@ export class UIScene extends Phaser.Scene {
   private currentBestScore = 0;
   private currentHp = 100;
   private currentMaxHp = 100;
+  private audioSettings: AudioSettings = loadAudioSettings();
   private isTitleVisible = false;
+  private isStartingFromTitle = false;
   private hasPlayedBestUpdateEffect = false;
   private lastGameOverPayload?: GameOverPayload;
 
@@ -73,6 +82,10 @@ export class UIScene extends Phaser.Scene {
     this.load.image(HP_FRAME_BASE_KEY, `${UI_ASSET_BASE}/hp_bar_frame.png`);
     this.load.image("uiHpBarFill", `${UI_ASSET_BASE}/hp_bar_fill.png`);
     this.load.image("uiPopupFrame", `${UI_ASSET_BASE}/popup_frame.png`);
+    this.load.svg(ICON_MUSIC_ON_KEY, `${UI_ICON_ASSET_BASE}/music_note.svg`);
+    this.load.svg(ICON_MUSIC_OFF_KEY, `${UI_ICON_ASSET_BASE}/music_off.svg`);
+    this.load.svg(ICON_VOLUME_ON_KEY, `${UI_ICON_ASSET_BASE}/volume_up.svg`);
+    this.load.svg(ICON_VOLUME_OFF_KEY, `${UI_ICON_ASSET_BASE}/volume_off.svg`);
   }
 
   create() {
@@ -216,6 +229,7 @@ export class UIScene extends Phaser.Scene {
     }
 
     this.titleLayer?.destroy(true);
+    this.titleAudioControls = undefined;
     this.titleLayer = this.add.container(0, 0).setDepth(130).setScrollFactor(0);
     this.isTitleVisible = true;
 
@@ -244,7 +258,9 @@ export class UIScene extends Phaser.Scene {
       onClick: () => this.startFromTitle()
     });
 
-    this.titleLayer.add([title, hint, button]);
+    this.titleAudioControls = this.createAudioToggleControls(132);
+
+    this.titleLayer.add([title, hint, button, this.titleAudioControls]);
     this.playTitleStartupIntro(title, hint, button, buttonWidth, buttonY);
   }
 
@@ -374,13 +390,59 @@ export class UIScene extends Phaser.Scene {
   }
 
   private startFromTitle() {
-    if (!this.titleLayer) {
+    if (!this.titleLayer || this.isStartingFromTitle) {
       return;
     }
 
+    this.isStartingFromTitle = true;
     this.tryMobileFullscreen();
-    this.hideTitle();
-    gameEvents.emit("ui:start");
+    gameEvents.emit("ui:start-sound");
+    this.playTitleStartTransition();
+  }
+
+  private playTitleStartTransition() {
+    if (!this.titleLayer) {
+      this.isStartingFromTitle = false;
+      return;
+    }
+
+    const layer = this.titleLayer;
+    const scan = this.add
+      .image(this.gameWidth / 2 - 180 * this.uiScale, this.gameHeight * 0.6, HP_SCAN_KEY)
+      .setDisplaySize(170 * this.uiScale, 90 * this.uiScale)
+      .setScrollFactor(0)
+      .setDepth(145)
+      .setAlpha(0.95)
+      .setBlendMode(Phaser.BlendModes.ADD);
+
+    this.tweens.add({
+      targets: scan,
+      x: this.gameWidth / 2 + 180 * this.uiScale,
+      alpha: { from: 0.95, to: 0 },
+      duration: 460,
+      ease: "Sine.easeOut",
+      onComplete: () => scan.destroy()
+    });
+
+    this.tweens.add({
+      targets: layer,
+      alpha: { from: 1, to: 0 },
+      y: { from: 0, to: -22 * this.uiScale },
+      duration: 420,
+      delay: 160,
+      ease: "Sine.easeInOut",
+      onComplete: () => {
+        if (this.titleLayer === layer) {
+          layer.destroy(true);
+          this.titleLayer = undefined;
+          this.titleAudioControls = undefined;
+        }
+
+        this.isTitleVisible = false;
+        this.isStartingFromTitle = false;
+        gameEvents.emit("ui:start");
+      }
+    });
   }
 
   private restartFromGameOver() {
@@ -388,6 +450,7 @@ export class UIScene extends Phaser.Scene {
       return;
     }
 
+    gameEvents.emit("ui:start-sound");
     this.hideGameOver();
     gameEvents.emit("ui:restart");
   }
@@ -435,8 +498,9 @@ export class UIScene extends Phaser.Scene {
       labelSize: 30 * scale,
       onClick: () => this.restartFromGameOver()
     });
+    this.gameOverAudioControls = this.createAudioToggleControls(142);
 
-    this.gameOverLayer.add([popup, title, score, button]);
+    this.gameOverLayer.add([popup, title, score, button, this.gameOverAudioControls]);
     this.tweens.add({
       targets: this.gameOverLayer,
       alpha: { from: 0, to: 1 },
@@ -461,6 +525,7 @@ export class UIScene extends Phaser.Scene {
       onComplete: () => {
         this.titleLayer?.destroy(true);
         this.titleLayer = undefined;
+        this.titleAudioControls = undefined;
         this.isTitleVisible = false;
       }
     });
@@ -469,7 +534,131 @@ export class UIScene extends Phaser.Scene {
   private hideGameOver() {
     this.gameOverLayer?.destroy(true);
     this.gameOverLayer = undefined;
+    this.gameOverAudioControls = undefined;
     this.lastGameOverPayload = undefined;
+  }
+
+  private createAudioToggleControls(depth: number) {
+    const scale = this.uiScale;
+    const size = 48 * scale;
+    const gap = 12 * scale;
+    const right = this.gameWidth - 26 * scale;
+    const bottom = this.gameHeight - 28 * scale;
+    const container = this.add
+      .container(right - size * 1.5 - gap, bottom - size / 2)
+      .setScrollFactor(0)
+      .setDepth(depth);
+
+    const bgmButton = this.createAudioToggleButton(
+      this.audioSettings.bgmEnabled ? ICON_MUSIC_ON_KEY : ICON_MUSIC_OFF_KEY,
+      this.audioSettings.bgmEnabled,
+      0,
+      () => {
+        this.setAudioSettings({ ...this.audioSettings, bgmEnabled: !this.audioSettings.bgmEnabled });
+      }
+    );
+    const seButton = this.createAudioToggleButton(
+      this.audioSettings.seEnabled ? ICON_VOLUME_ON_KEY : ICON_VOLUME_OFF_KEY,
+      this.audioSettings.seEnabled,
+      size + gap,
+      () => {
+        this.setAudioSettings({ ...this.audioSettings, seEnabled: !this.audioSettings.seEnabled });
+      }
+    );
+
+    container.add([bgmButton, seButton]);
+    return container;
+  }
+
+  private createAudioToggleButton(
+    iconKey: string,
+    enabled: boolean,
+    x: number,
+    onClick: () => void
+  ) {
+    const scale = this.uiScale;
+    const size = 48 * scale;
+    const button = this.add.container(x, 0).setScrollFactor(0);
+    const icon =
+      this.textures.exists(iconKey)
+        ? this.add
+            .image(0, 0, iconKey)
+            .setDisplaySize(34 * scale, 34 * scale)
+            .setScrollFactor(0)
+        : this.add
+            .text(0, -1 * scale, iconKey, {
+              fontFamily: "Material Symbols Rounded",
+              fontSize: `${24 * scale}px`,
+              fontStyle: "500",
+              color: "#ffffff",
+              align: "center",
+              shadow: {
+                offsetX: 0,
+                offsetY: 0,
+                color: "#22d7ff",
+                blur: enabled ? 12 : 0,
+                fill: true
+              }
+            })
+            .setOrigin(0.5)
+            .setScrollFactor(0);
+    const hitArea = this.add
+      .zone(0, 0, size, size)
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setInteractive({ useHandCursor: true });
+
+    button.setAlpha(enabled ? 1 : 0.72);
+    button.add([icon, hitArea]);
+
+    hitArea.on("pointerover", () => {
+      this.tweens.add({
+        targets: button,
+        scale: 1.08,
+        duration: 110,
+        ease: "Sine.easeOut"
+      });
+    });
+
+    hitArea.on("pointerout", () => {
+      this.tweens.add({
+        targets: button,
+        scale: 1,
+        duration: 130,
+        ease: "Sine.easeOut"
+      });
+    });
+
+    hitArea.on("pointerdown", () => {
+      this.tweens.add({
+        targets: button,
+        scale: 0.92,
+        duration: 70,
+        yoyo: true,
+        ease: "Sine.easeInOut",
+        onComplete: onClick
+      });
+    });
+
+    return button;
+  }
+
+  private setAudioSettings(settings: AudioSettings) {
+    this.audioSettings = settings;
+    saveAudioSettings(settings);
+    gameEvents.emit("audio:settings-changed", settings);
+
+    if (this.titleLayer && this.titleAudioControls) {
+      this.titleAudioControls.destroy(true);
+      this.titleAudioControls = this.createAudioToggleControls(132);
+      this.titleLayer.add(this.titleAudioControls);
+    }
+
+    if (this.gameOverLayer && this.gameOverAudioControls) {
+      this.gameOverAudioControls.destroy(true);
+      this.gameOverAudioControls = this.createAudioToggleControls(142);
+      this.gameOverLayer.add(this.gameOverAudioControls);
+    }
   }
 
   private updateScore(payload: ScorePayload) {

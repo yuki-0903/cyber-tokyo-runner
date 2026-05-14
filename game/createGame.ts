@@ -5,6 +5,13 @@ import { UIScene } from "@/game/scenes/UIScene";
 export async function createGame(parent: HTMLElement): Promise<Phaser.Game> {
   const PhaserRuntime = await import("phaser");
 
+  if ("fonts" in document) {
+    await Promise.all([
+      document.fonts.load('800 24px "Orbitron"'),
+      document.fonts.load('500 24px "Material Symbols Rounded"')
+    ]);
+  }
+
   const config: Phaser.Types.Core.GameConfig = {
     type: PhaserRuntime.AUTO,
     parent,

@@ -1,7 +1,8 @@
 import * as Phaser from "phaser";
-import { ASSET_BASE } from "@/game/config/assets";
+import { ASSET_BASE, AUDIO_ASSET_BASE } from "@/game/config/assets";
 import { gameEvents } from "@/game/systems/GameEvents";
 import { gameServices } from "@/game/systems/GameServices";
+import { loadAudioSettings, type AudioSettings } from "@/game/systems/AudioSettings";
 import { ObstacleManager } from "@/game/systems/ObstacleManager";
 import type { RuntimeGameState } from "@/game/types/GameState";
 
@@ -13,6 +14,11 @@ const PLAYER_BOTTOM_OFFSET = 72;
 const PLAYER_MARGIN_X = 32;
 const PLAYER_BASE_SCALE = 2.55;
 const START_OBSTACLE_DELAY_MS = 1220;
+const BGM_MAIN_KEY = "bgmMainLoop";
+const START_SE_KEY = "seStart";
+const HIT_SE_KEY = "seHit";
+const BGM_START_DELAY_MS = 520;
+type LoopingBgm = Phaser.Sound.HTML5AudioSound | Phaser.Sound.WebAudioSound;
 
 export class GameScene extends Phaser.Scene {
   private player?: Phaser.Physics.Arcade.Sprite;
@@ -27,6 +33,10 @@ export class GameScene extends Phaser.Scene {
   private holdTouchEffect?: Phaser.GameObjects.Container;
   private holdTouchEffectTween?: Phaser.Tweens.Tween;
   private hitStopEvent?: Phaser.Time.TimerEvent;
+  private bgm?: LoopingBgm;
+  private bgmStartEvent?: Phaser.Time.TimerEvent;
+  private audioSettings: AudioSettings = loadAudioSettings();
+  private lastHitSoundAt = -1000;
   private scoreTimer = 0;
   private readonly state: RuntimeGameState = {
     phase: "ready",
@@ -56,6 +66,9 @@ export class GameScene extends Phaser.Scene {
       frameWidth: 32,
       frameHeight: 32
     });
+    this.load.audio(BGM_MAIN_KEY, `${AUDIO_ASSET_BASE}/bgm_main_loop.mp3`);
+    this.load.audio(START_SE_KEY, `${AUDIO_ASSET_BASE}/se_start.mp3`);
+    this.load.audio(HIT_SE_KEY, `${AUDIO_ASSET_BASE}/se_hit.mp3`);
     ObstacleManager.preload(this);
   }
 
@@ -301,6 +314,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createEvents() {
+    gameEvents.on("audio:settings-changed", (settings) => this.applyAudioSettings(settings));
+    gameEvents.on("ui:start-sound", () => this.playStartSound());
     gameEvents.on("ui:start", () => this.startGame());
     gameEvents.on("ui:restart", () => this.startGame());
   }
@@ -468,6 +483,7 @@ export class GameScene extends Phaser.Scene {
 
   private startGame() {
     this.state.phase = "playing";
+    this.queueBgmStart();
     this.state.score = 0;
     this.state.hp = this.state.maxHp;
     this.scoreTimer = 0;
@@ -505,6 +521,8 @@ export class GameScene extends Phaser.Scene {
     const hitY = enemy.y;
     enemy.destroy();
     this.state.hp = Math.max(0, this.state.hp - 25);
+    this.playHitSound();
+    this.vibrateOnHit();
     gameEvents.emit("health:changed", {
       hp: this.state.hp,
       maxHp: this.state.maxHp
@@ -649,12 +667,61 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private playHitSound() {
+    if (!this.audioSettings.seEnabled) {
+      return;
+    }
+
+    const now = this.time.now;
+    if (now - this.lastHitSoundAt < 140) {
+      return;
+    }
+
+    this.lastHitSoundAt = now;
+    this.sound.play(HIT_SE_KEY, { volume: 0.62 });
+  }
+
+  private playStartSound() {
+    if (!this.audioSettings.seEnabled) {
+      return;
+    }
+
+    this.sound.play(START_SE_KEY, { volume: 0.68 });
+  }
+
+  private queueBgmStart() {
+    this.bgmStartEvent?.remove(false);
+
+    if (!this.audioSettings.bgmEnabled) {
+      return;
+    }
+
+    if (this.bgm?.isPlaying) {
+      this.bgm.setVolume(0.42);
+      return;
+    }
+
+    this.bgmStartEvent = this.time.delayedCall(BGM_START_DELAY_MS, () => {
+      this.playBgm();
+      this.bgmStartEvent = undefined;
+    });
+  }
+
+  private vibrateOnHit() {
+    if (typeof navigator === "undefined" || !("vibrate" in navigator)) {
+      return;
+    }
+
+    navigator.vibrate(60);
+  }
+
   private async gameOver() {
     if (this.state.phase === "gameOver") {
       return;
     }
 
     this.state.phase = "gameOver";
+    this.duckBgmForGameOver();
     this.touchDirection = 0;
     this.hideHoldTouchEffect();
     this.resetHitStop();
@@ -669,5 +736,87 @@ export class GameScene extends Phaser.Scene {
     });
 
     await gameServices.leaderboard.submitScore(this.state.score);
+  }
+
+  private playBgm() {
+    if (!this.audioSettings.bgmEnabled) {
+      return;
+    }
+
+    if (!this.sound.locked && !this.bgm) {
+      this.bgm = this.sound.add(BGM_MAIN_KEY, {
+        loop: true,
+        volume: 0.42
+      }) as LoopingBgm;
+    }
+
+    if (!this.bgm) {
+      return;
+    }
+
+    if (!this.bgm.isPlaying) {
+      this.bgm.play();
+    }
+
+    this.tweens.addCounter({
+      from: this.bgm.volume,
+      to: 0.42,
+      duration: 420,
+      ease: "Sine.easeOut",
+      onUpdate: (tween) => {
+        this.bgm?.setVolume(tween.getValue() ?? 0.42);
+      }
+    });
+  }
+
+  private duckBgmForGameOver() {
+    if (!this.audioSettings.bgmEnabled || !this.bgm) {
+      return;
+    }
+
+    this.tweens.addCounter({
+      from: this.bgm.volume,
+      to: 0.24,
+      duration: 520,
+      ease: "Sine.easeOut",
+      onUpdate: (tween) => {
+        this.bgm?.setVolume(tween.getValue() ?? 0.24);
+      }
+    });
+  }
+
+  private applyAudioSettings(settings: AudioSettings) {
+    this.audioSettings = settings;
+
+    if (!settings.bgmEnabled) {
+      this.bgmStartEvent?.remove(false);
+      this.bgmStartEvent = undefined;
+      this.bgm?.pause();
+      return;
+    }
+
+    if (this.state.phase === "playing") {
+      this.playBgm();
+      return;
+    }
+
+    if (this.state.phase === "gameOver") {
+      if (!this.sound.locked && !this.bgm) {
+        this.bgm = this.sound.add(BGM_MAIN_KEY, {
+          loop: true,
+          volume: 0.24
+        }) as LoopingBgm;
+      }
+
+      if (!this.bgm) {
+        return;
+      }
+
+      if (!this.bgm.isPlaying) {
+        this.bgm.play();
+      }
+
+      this.bgm.setVolume(0.24);
+    }
   }
 }

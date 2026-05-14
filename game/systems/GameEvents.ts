@@ -13,6 +13,11 @@ export interface GameOverPayload {
   bestScore: number;
 }
 
+export interface AudioSettingsPayload {
+  bgmEnabled: boolean;
+  seEnabled: boolean;
+}
+
 type GameEventMap = {
   "game:ready": undefined;
   "game:start": undefined;
@@ -20,6 +25,8 @@ type GameEventMap = {
   "health:changed": HealthPayload;
   "game:over": GameOverPayload;
   "game:restart": undefined;
+  "audio:settings-changed": AudioSettingsPayload;
+  "ui:start-sound": undefined;
   "ui:start": undefined;
   "ui:restart": undefined;
 };
