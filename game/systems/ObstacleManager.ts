@@ -16,17 +16,22 @@ interface SpawnConfig {
   speedStart: number;
   speedMax: number;
   difficultyRamp: number;
+  densityRampMaxMs: number;
+  densityScoreCap: number;
 }
 
 const SPAWN_CONFIG: SpawnConfig = {
   initialDelayMs: 920,
-  minDelayMs: 310,
+  minDelayMs: 250,
   speedStart: 112,
   speedMax: 360,
-  difficultyRamp: 0.013
+  difficultyRamp: 0.013,
+  densityRampMaxMs: 670,
+  densityScoreCap: 1000
 };
 
 const HAZARD_DEPTH = 7;
+const OBSTACLE_VISUAL_SCALE = 0.92;
 const BODY_SCALE = 0.58;
 const CLEAN_TEXTURE_SUFFIX = "-clean";
 const EDGE_COLOR_SEARCH_RADIUS = 3;
@@ -161,8 +166,8 @@ export class ObstacleManager {
     const screenScale = this.config.getScreenScale();
     const sizeScale = Phaser.Math.FloatBetween(0.86, 1.14);
     const speed = this.getFallSpeed(score) * screenScale;
-    const width = asset.displayWidth * screenScale * sizeScale;
-    const height = asset.displayHeight * screenScale * sizeScale;
+    const width = asset.displayWidth * screenScale * sizeScale * OBSTACLE_VISUAL_SCALE;
+    const height = asset.displayHeight * screenScale * sizeScale * OBSTACLE_VISUAL_SCALE;
 
     obstacle
       .setDepth(HAZARD_DEPTH)
@@ -261,7 +266,8 @@ export class ObstacleManager {
   }
 
   private getNextDelay(score: number) {
-    const ramp = Math.min(560, score * 5.8);
+    const densityProgress = Phaser.Math.Clamp(score / SPAWN_CONFIG.densityScoreCap, 0, 1);
+    const ramp = SPAWN_CONFIG.densityRampMaxMs * Math.sqrt(densityProgress);
     const variance = Phaser.Math.Between(-55, 75);
 
     return Math.max(

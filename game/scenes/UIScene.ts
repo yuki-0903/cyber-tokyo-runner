@@ -1064,6 +1064,7 @@ export class UIScene extends Phaser.Scene {
   private registerEvents() {
     gameEvents.on("score:changed", (payload) => this.updateScore(payload));
     gameEvents.on("health:changed", (payload) => this.updateHealth(payload));
+    gameEvents.on("pickup:healed", () => this.playHpChargeCompleteEffect());
     gameEvents.on("game:start", () => this.playHpIntroCharge());
     gameEvents.on("game:over", (payload) => this.showGameOver(payload));
     gameEvents.on("game:restart", () => {
