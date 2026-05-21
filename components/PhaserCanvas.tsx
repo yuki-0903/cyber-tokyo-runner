@@ -28,6 +28,8 @@ export default function PhaserCanvas() {
 
     return () => {
       cancelled = true;
+      gameRef.current?.sound.stopAll();
+      gameRef.current?.sound.destroy();
       gameRef.current?.destroy(true);
       gameRef.current = null;
     };
