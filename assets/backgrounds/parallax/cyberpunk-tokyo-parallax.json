@@ -1,5 +1,5 @@
 {
-  "source": "assets/backgrounds/cyberpunk-tokyo-alley-source.png",
+  "source": "assets/backgrounds/cyberpunk-tokyo-alley-source.webp",
   "size": {
     "width": 1774,
     "height": 887
@@ -7,22 +7,22 @@
   "layers": [
     {
       "key": "sky",
-      "file": "cyberpunk-tokyo-sky.png",
+      "file": "cyberpunk-tokyo-sky.webp",
       "scrollFactor": 0.05
     },
     {
       "key": "farBackground",
-      "file": "cyberpunk-tokyo-far-background.png",
+      "file": "cyberpunk-tokyo-far-background.webp",
       "scrollFactor": 0.25
     },
     {
       "key": "buildings",
-      "file": "cyberpunk-tokyo-buildings.png",
+      "file": "cyberpunk-tokyo-buildings.webp",
       "scrollFactor": 0.55
     },
     {
       "key": "foreground",
-      "file": "cyberpunk-tokyo-foreground.png",
+      "file": "cyberpunk-tokyo-foreground.webp",
       "scrollFactor": 1.0
     }
   ],

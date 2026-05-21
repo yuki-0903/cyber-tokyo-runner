@@ -6,6 +6,6 @@
   "rows": 16,
   "imageWidth": 512,
   "imageHeight": 512,
-  "source": "cyberpunk-tokyo-alley-source.png",
+  "source": "cyberpunk-tokyo-alley-source.webp",
   "notes": "Core wall/floor/pipe tiles are designed to repeat on a 32x32 grid; lower rows include transparent decals for layering."
 }

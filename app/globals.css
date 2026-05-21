@@ -75,6 +75,14 @@ button {
   image-rendering: crisp-edges;
 }
 
+.canvas-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  background: #05070f;
+  pointer-events: none;
+}
+
 .hud {
   position: absolute;
   inset: 0;
@@ -187,7 +195,8 @@ button {
   display: grid;
   height: 100%;
   gap: 16px;
-  place-items: center;
+  align-content: center;
+  justify-items: center;
   color: var(--cyan);
   font-size: clamp(24px, 4vw, 42px);
   font-weight: 800;

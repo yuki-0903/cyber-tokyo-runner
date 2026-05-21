@@ -76,12 +76,12 @@ export class UIScene extends Phaser.Scene {
   }
 
   preload() {
-    this.load.image("uiButtonStart", `${UI_ASSET_BASE}/button_start.png`);
-    this.load.image("uiButtonRetry", `${UI_ASSET_BASE}/button_retry.png`);
-    this.load.image("uiPanelScore", `${UI_ASSET_BASE}/panel_score.png`);
+    this.load.image("uiButtonStart", `${UI_ASSET_BASE}/button_start.webp`);
+    this.load.image("uiButtonRetry", `${UI_ASSET_BASE}/button_retry.webp`);
+    this.load.image("uiPanelScore", `${UI_ASSET_BASE}/panel_score.webp`);
     this.load.image(HP_FRAME_BASE_KEY, `${UI_ASSET_BASE}/hp_bar_frame.png`);
     this.load.image("uiHpBarFill", `${UI_ASSET_BASE}/hp_bar_fill.png`);
-    this.load.image("uiPopupFrame", `${UI_ASSET_BASE}/popup_frame.png`);
+    this.load.image("uiPopupFrame", `${UI_ASSET_BASE}/popup_frame.webp`);
     this.load.svg(ICON_MUSIC_ON_KEY, `${UI_ICON_ASSET_BASE}/music_note.svg`);
     this.load.svg(ICON_MUSIC_OFF_KEY, `${UI_ICON_ASSET_BASE}/music_off.svg`);
     this.load.svg(ICON_VOLUME_ON_KEY, `${UI_ICON_ASSET_BASE}/volume_up.svg`);
@@ -306,7 +306,10 @@ export class UIScene extends Phaser.Scene {
     button.setScale(0.98);
     button.y = buttonY + 12 * this.uiScale;
 
-    this.time.delayedCall(360, () => title.setAlpha(0.42));
+    this.time.delayedCall(360, () => {
+      title.setAlpha(0.42);
+      gameEvents.emit("ui:ready");
+    });
     this.time.delayedCall(440, () => title.setAlpha(0));
     this.time.delayedCall(540, () => title.setAlpha(0.78));
     this.time.delayedCall(620, () => title.setAlpha(0.22));

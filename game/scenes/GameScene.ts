@@ -59,14 +59,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   preload() {
-    this.load.image("sky", `${ASSET_BASE}/backgrounds/parallax/cyberpunk-tokyo-sky.png`);
+    this.load.image("sky", `${ASSET_BASE}/backgrounds/parallax/cyberpunk-tokyo-sky.webp`);
     this.load.image(
       "farBackground",
-      `${ASSET_BASE}/backgrounds/parallax/cyberpunk-tokyo-far-background.png`
+      `${ASSET_BASE}/backgrounds/parallax/cyberpunk-tokyo-far-background.webp`
     );
-    this.load.image("buildings", `${ASSET_BASE}/backgrounds/parallax/cyberpunk-tokyo-buildings.png`);
-    this.load.image("foreground", `${ASSET_BASE}/backgrounds/parallax/cyberpunk-tokyo-foreground.png`);
-    this.load.spritesheet("girlWalk", `${ASSET_BASE}/sprites/cyberpunk-girl-walk-32x32.png`, {
+    this.load.image("buildings", `${ASSET_BASE}/backgrounds/parallax/cyberpunk-tokyo-buildings.webp`);
+    this.load.image("foreground", `${ASSET_BASE}/backgrounds/parallax/cyberpunk-tokyo-foreground.webp`);
+    this.load.spritesheet("girlWalk", `${ASSET_BASE}/sprites/cyberpunk-girl-walk-32x32.webp`, {
       frameWidth: 32,
       frameHeight: 32
     });
