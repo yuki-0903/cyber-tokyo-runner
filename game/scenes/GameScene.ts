@@ -41,6 +41,9 @@ export class GameScene extends Phaser.Scene {
   private bgm?: LoopingBgm;
   private bgmStartEvent?: Phaser.Time.TimerEvent;
   private audioSettings: AudioSettings = loadAudioSettings();
+  private eventDisposers: Array<() => void> = [];
+  private didRegisterPageLifecycle = false;
+  private didCleanup = false;
   private lastHitSoundAt = -1000;
   private scoreTimer = 0;
   private readonly state: RuntimeGameState = {
@@ -90,6 +93,7 @@ export class GameScene extends Phaser.Scene {
     this.createPickups();
     this.createInput();
     this.createEvents();
+    this.createLifecycleEvents();
     this.scale.on(Phaser.Scale.Events.RESIZE, this.handleResize, this);
     this.prepareGame();
   }
@@ -338,10 +342,26 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createEvents() {
-    gameEvents.on("audio:settings-changed", (settings) => this.applyAudioSettings(settings));
-    gameEvents.on("ui:start-sound", () => this.playStartSound());
-    gameEvents.on("ui:start", () => this.startGame());
-    gameEvents.on("ui:restart", () => this.startGame());
+    this.eventDisposers.push(
+      gameEvents.on("audio:settings-changed", (settings) => this.applyAudioSettings(settings)),
+      gameEvents.on("ui:start-sound", () => this.playStartSound()),
+      gameEvents.on("ui:start", () => this.startGame()),
+      gameEvents.on("ui:restart", () => this.startGame())
+    );
+  }
+
+  private createLifecycleEvents() {
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.cleanupScene, this);
+    this.events.once(Phaser.Scenes.Events.DESTROY, this.cleanupScene, this);
+
+    if (typeof window === "undefined" || this.didRegisterPageLifecycle) {
+      return;
+    }
+
+    window.addEventListener("pagehide", this.handlePageHide);
+    window.addEventListener("beforeunload", this.handlePageHide);
+    document.addEventListener("visibilitychange", this.handleVisibilityChange);
+    this.didRegisterPageLifecycle = true;
   }
 
   private showHoldTouchEffect(x: number, y: number) {
@@ -948,5 +968,49 @@ export class GameScene extends Phaser.Scene {
 
       this.bgm.setVolume(0.24);
     }
+  }
+
+  private readonly handlePageHide = () => {
+    this.stopAudio();
+  };
+
+  private readonly handleVisibilityChange = () => {
+    if (document.visibilityState === "hidden") {
+      this.stopAudio();
+    }
+  };
+
+  private cleanupScene() {
+    if (this.didCleanup) {
+      return;
+    }
+
+    this.didCleanup = true;
+    this.stopAudio();
+    this.resetHitStop();
+    this.hideHoldTouchEffect();
+    this.scale.off(Phaser.Scale.Events.RESIZE, this.handleResize, this);
+    this.eventDisposers.forEach((dispose) => dispose());
+    this.eventDisposers = [];
+
+    if (typeof window !== "undefined" && this.didRegisterPageLifecycle) {
+      window.removeEventListener("pagehide", this.handlePageHide);
+      window.removeEventListener("beforeunload", this.handlePageHide);
+      document.removeEventListener("visibilitychange", this.handleVisibilityChange);
+      this.didRegisterPageLifecycle = false;
+    }
+  }
+
+  private stopAudio() {
+    this.bgmStartEvent?.remove(false);
+    this.bgmStartEvent = undefined;
+
+    if (this.bgm) {
+      this.bgm.stop();
+      this.bgm.destroy();
+      this.bgm = undefined;
+    }
+
+    this.sound.stopAll();
   }
 }
