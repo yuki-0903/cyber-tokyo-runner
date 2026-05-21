@@ -32,6 +32,7 @@ type GameEventMap = {
   "pickup:healed": PickupHealedPayload;
   "game:over": GameOverPayload;
   "game:restart": undefined;
+  "ui:ready": undefined;
   "audio:settings-changed": AudioSettingsPayload;
   "ui:start-sound": undefined;
   "ui:start": undefined;

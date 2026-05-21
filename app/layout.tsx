@@ -39,7 +39,7 @@ export const metadata: Metadata = {
     description: siteDescription,
     images: [
       {
-        url: "og-image.png",
+        url: "og-image.webp",
         width: 1200,
         height: 630,
         alt: "Cyberpunk Tokyo alley game scene for Cyber Tokyo Runner"
@@ -50,7 +50,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: siteName,
     description: siteDescription,
-    images: ["og-image.png"]
+    images: ["og-image.webp"]
   },
   icons: {
     icon: [{ url: `${basePath}/favicon.png`, type: "image/png", sizes: "64x64" }],

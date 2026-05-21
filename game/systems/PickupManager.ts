@@ -57,7 +57,7 @@ export class PickupManager {
   static preload(scene: Phaser.Scene) {
     scene.load.spritesheet(
       ENERGY_DRINK_KEY,
-      `${PICKUP_ASSET_BASE}/energy_drink_pickup_sheet_32.png`,
+      `${PICKUP_ASSET_BASE}/energy_drink_pickup_sheet_32.webp`,
       {
         frameWidth: 32,
         frameHeight: 32
